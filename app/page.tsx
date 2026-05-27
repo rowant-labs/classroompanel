@@ -15,8 +15,8 @@ export default function Home() {
           A student asks a question, uploads a lesson, or gets stuck. ClassroomPanel answers by teaching on one adaptive visual canvas — diagrams, graphs, simulations, notes, and quick checks all in sync.
         </p>
         <div className="hero-actions">
-          <a href="/vision.html" className="primary">Read the product vision</a>
-          <a href="https://classroompanel.com" className="secondary">classroompanel.com</a>
+          <a href="/demo" className="primary">View the living blackboard demo</a>
+          <a href="/vision.html" className="secondary">Read the product vision</a>
         </div>
       </section>
 
