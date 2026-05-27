@@ -1,57 +1,67 @@
-export type LessonBlock =
-  | ExplanationBlock
-  | GraphBlock
-  | DiagramBlock
-  | StepsBlock
-  | QuizBlock;
+import { z } from 'zod';
 
-export type Lesson = {
-  id: string;
-  title: string;
-  subject: string;
-  objective: string;
-  blocks: LessonBlock[];
-};
+export const explanationBlockSchema = z.object({
+  id: z.string(),
+  type: z.literal('explanation'),
+  eyebrow: z.string().optional(),
+  title: z.string(),
+  body: z.string(),
+});
 
-export type ExplanationBlock = {
-  id: string;
-  type: 'explanation';
-  eyebrow?: string;
-  title: string;
-  body: string;
-};
+export const graphBlockSchema = z.object({
+  id: z.string(),
+  type: z.literal('graph'),
+  title: z.string(),
+  subtitle: z.string().optional(),
+  expression: z.string(),
+  highlight: z.enum(['tangent', 'area', 'point', 'slope']),
+  focusX: z.number().optional(),
+});
 
-export type GraphBlock = {
-  id: string;
-  type: 'graph';
-  title: string;
-  subtitle?: string;
-  expression: string;
-  highlight: 'tangent' | 'area' | 'point' | 'slope';
-};
+export const diagramBlockSchema = z.object({
+  id: z.string(),
+  type: z.literal('diagram'),
+  title: z.string(),
+  nodes: z.array(z.object({ label: z.string(), detail: z.string().optional() })).min(2).max(8),
+});
 
-export type DiagramBlock = {
-  id: string;
-  type: 'diagram';
-  title: string;
-  nodes: Array<{ label: string; detail?: string }>;
-};
+export const stepsBlockSchema = z.object({
+  id: z.string(),
+  type: z.literal('steps'),
+  title: z.string(),
+  steps: z.array(z.string()).min(2).max(8),
+});
 
-export type StepsBlock = {
-  id: string;
-  type: 'steps';
-  title: string;
-  steps: string[];
-};
+export const quizBlockSchema = z.object({
+  id: z.string(),
+  type: z.literal('quiz'),
+  question: z.string(),
+  choices: z.array(z.string()).min(2).max(5),
+  answerIndex: z.number().int().min(0),
+  explanation: z.string(),
+}).refine((block) => block.answerIndex < block.choices.length, {
+  message: 'answerIndex must point to an existing choice',
+  path: ['answerIndex'],
+});
 
-export type QuizBlock = {
-  id: string;
-  type: 'quiz';
-  question: string;
-  choices: string[];
-  answerIndex: number;
-  explanation: string;
-};
+export const lessonBlockSchema = z.discriminatedUnion('type', [
+  explanationBlockSchema,
+  graphBlockSchema,
+  diagramBlockSchema,
+  stepsBlockSchema,
+  quizBlockSchema,
+]);
+
+export const lessonSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  subject: z.string(),
+  objective: z.string(),
+  blocks: z.array(lessonBlockSchema).min(3).max(8),
+});
+
+export type Lesson = z.infer<typeof lessonSchema>;
+export type LessonBlock = z.infer<typeof lessonBlockSchema>;
 
 export const derivativeLesson: Lesson = {
   id: 'derivatives-first-look',
@@ -73,6 +83,7 @@ export const derivativeLesson: Lesson = {
       subtitle: 'For y = x², the slope changes as x moves.',
       expression: 'y = x²',
       highlight: 'tangent',
+      focusX: 1.2,
     },
     {
       id: 'diagram',
