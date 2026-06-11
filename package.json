@@ -7,11 +7,13 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/schema.test.ts"
+    "test": "tsx tests/schema.test.ts && tsx tests/expression.test.ts && tsx tests/board-image.test.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.79",
     "@ai-sdk/google": "latest",
     "@ai-sdk/openai": "latest",
+    "@ai-sdk/react": "^3.0.202",
     "ai": "latest",
     "next": "latest",
     "react": "latest",
