@@ -22,7 +22,7 @@ export const courseSchema = z.object({
   subject: z.string(),
   gradeBand: z.string(),
   overview: z.string(),
-  units: z.array(courseUnitSchema).min(1).max(10),
+  units: z.array(courseUnitSchema).min(1).max(12),
 });
 
 export type Course = z.infer<typeof courseSchema>;

@@ -147,6 +147,7 @@ export function LessonRenderer({ lesson, selectedAnswer = null, onSelectAnswer, 
                         className={`board-choice ${isSelected ? 'selected' : ''} ${selectedAnswer !== null && isCorrect ? 'correct' : ''}`}
                         key={choice}
                         onClick={() => onSelectAnswer?.(index)}
+                        disabled={isDrawing && selectedAnswer === null}
                       >
                         <span>{String.fromCharCode(65 + index)}</span>
                         {choice}
