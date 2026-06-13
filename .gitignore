@@ -11,6 +11,9 @@ build
 # generated board images
 .cache
 
+# sample curriculum uploads (large; not part of the app)
+Samples
+
 # misc
 .DS_Store
 *.pem
