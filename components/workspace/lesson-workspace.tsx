@@ -6,20 +6,52 @@ import { LessonRenderer } from '@/components/lesson-renderer';
 import { lessonSchema, type Lesson } from '@/lib/lesson-schema';
 import { toLessonView, type LessonView } from '@/lib/lesson-view';
 import type { Course, CourseLesson, CourseUnit } from '@/lib/course-schema';
+import type { CounselorReport } from '@/lib/counselor-schema';
 import type { LessonContext } from '@/lib/tutor-prompt';
 
 type ChatMessage = { id: string; role: 'student' | 'tutor'; text: string };
 type BoardRecord = { id: string; topic: string; lesson: Lesson; model?: string; courseLessonId?: string };
+
+type QuizAttempt = {
+  id: string;
+  at: string; // ISO timestamp
+  boardTitle: string;
+  subject: string;
+  question: string;
+  chosen: string;
+  correct: boolean;
+  courseLessonId?: string;
+};
+
+type CounselorState = {
+  report: CounselorReport;
+  model?: string;
+  at: string; // ISO timestamp of the check-in
+  // Event counts when this report was written — drives the refresh badge.
+  attemptsAtReport: number;
+  boardsAtReport: number;
+};
 
 type SavedSession = {
   messages: ChatMessage[];
   boards: BoardRecord[];
   course: Course | null;
   done: Record<string, boolean>;
+  // Optional so older saves under the same key still load.
+  attempts?: QuizAttempt[];
+  counselor?: CounselorState | null;
+  // Monotonic event counters — unlike attempts/boards array lengths, these keep
+  // growing past the storage caps, so counselor staleness detection never stalls.
+  totalAttempts?: number;
+  totalBoards?: number;
 };
 
 const STORAGE_KEY = 'classroompanel.session.v2';
 const MAX_BOARDS = 16;
+const MAX_ATTEMPTS = 40;
+// Auto-refresh the counselor once this many new events (attempts or boards)
+// have happened since the last report.
+const COUNSELOR_REFRESH_EVENTS = 2;
 
 const starterPrompts = [
   'I don’t understand derivatives',
@@ -44,14 +76,23 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   const [done, setDone] = useState<Record<string, boolean>>({});
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [composerText, setComposerText] = useState('');
-  const [sideTab, setSideTab] = useState<'tutor' | 'course'>('tutor');
+  const [sideTab, setSideTab] = useState<'tutor' | 'course' | 'counselor'>('tutor');
   const [statusNote, setStatusNote] = useState('Ask anything. The board draws itself.');
   const [isFallbackLoading, setIsFallbackLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
+  const [counselor, setCounselor] = useState<CounselorState | null>(null);
+  const [isCounselorLoading, setIsCounselorLoading] = useState(false);
+  const [totalAttempts, setTotalAttempts] = useState(0);
+  const [totalBoards, setTotalBoards] = useState(0);
 
   // What the in-flight generation is about (topic shown in history, course bookkeeping)
   const pendingRef = useRef<{ topic: string; context: LessonContext; courseLessonId?: string } | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
+  // Counselor fetch guards: never two requests in flight, and don't auto-retry
+  // a failed check-in until something new happens.
+  const counselorInFlightRef = useRef(false);
+  const counselorTriedKeyRef = useRef<string | null>(null);
 
   // ---- session persistence -------------------------------------------------
   useEffect(() => {
@@ -65,6 +106,10 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
           setActiveBoardIndex(saved.boards.length - 1);
           setCourse(saved.course ?? null);
           setDone(saved.done ?? {});
+          setAttempts(saved.attempts ?? []);
+          setCounselor(saved.counselor ?? null);
+          setTotalAttempts(saved.totalAttempts ?? (saved.attempts ?? []).length);
+          setTotalBoards(saved.totalBoards ?? saved.boards.length);
           setStatusNote('Welcome back — your session is right where you left it.');
         }
       }
@@ -77,12 +122,21 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   useEffect(() => {
     if (!hydrated) return;
     try {
-      const session: SavedSession = { messages: messages.slice(-60), boards: boards.slice(-MAX_BOARDS), course, done };
+      const session: SavedSession = {
+        messages: messages.slice(-60),
+        boards: boards.slice(-MAX_BOARDS),
+        course,
+        done,
+        attempts: attempts.slice(-MAX_ATTEMPTS),
+        counselor,
+        totalAttempts,
+        totalBoards,
+      };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
     } catch {
       // storage full — fine, session just won't persist
     }
-  }, [hydrated, messages, boards, course, done]);
+  }, [hydrated, messages, boards, course, done, attempts, counselor, totalAttempts, totalBoards]);
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -112,6 +166,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
       role: 'tutor',
       text: lesson.tutorMessage ?? `Here’s the board for “${lesson.title}”. Try the quick check when you’re ready.`,
     }]);
+    setTotalBoards((count) => count + 1);
     setSelectedAnswer(null);
   }, []);
 
@@ -175,6 +230,82 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     history: messages.slice(-8).map((message) => ({ role: message.role, text: message.text })),
   }), [messages]);
 
+  // ---- guidance counselor ----------------------------------------------------
+  // Events (attempts + boards) that happened since the last report. With no
+  // report yet, everything counts as new.
+  const counselorNewEvents = counselor
+    ? Math.max(0, totalAttempts - counselor.attemptsAtReport) + Math.max(0, totalBoards - counselor.boardsAtReport)
+    : totalAttempts + totalBoards;
+  const counselorRefreshPending = counselor
+    ? counselorNewEvents >= COUNSELOR_REFRESH_EVENTS
+    : counselorNewEvents > 0;
+
+  // Bumped on reset so an in-flight check-in from the old session is dropped.
+  const counselorEpochRef = useRef(0);
+
+  const fetchCounselorReport = useCallback(async (force = false) => {
+    if (counselorInFlightRef.current) return;
+    const tryKey = `${totalAttempts}:${totalBoards}`;
+    if (!force && counselorTriedKeyRef.current === tryKey) return;
+    counselorInFlightRef.current = true;
+    counselorTriedKeyRef.current = tryKey;
+    setIsCounselorLoading(true);
+    const epoch = counselorEpochRef.current;
+    const attemptsAtReport = totalAttempts;
+    const boardsAtReport = totalBoards;
+    try {
+      const snapshot = {
+        attempts: attempts.slice(-25).map(({ at, boardTitle, subject, question, chosen, correct }) => (
+          { at, boardTitle, subject, question, chosen, correct }
+        )),
+        boards: boards.slice(-MAX_BOARDS).map((board) => ({ title: board.lesson.title, subject: board.lesson.subject })),
+        course: course ? {
+          title: course.title,
+          subject: course.subject,
+          gradeBand: course.gradeBand,
+          totalLessons: countLessons(course),
+          doneLessons: Object.keys(done).filter((key) => done[key]).length,
+        } : null,
+        recentMessages: messages.slice(-8).map((message) => ({ role: message.role, text: message.text })),
+      };
+      const response = await fetch('/api/counselor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshot }),
+      });
+      const data = await response.json();
+      if (epoch !== counselorEpochRef.current) return; // session was reset mid-flight
+      if (response.ok && data?.report) {
+        setCounselor({
+          report: data.report as CounselorReport,
+          model: data.model,
+          at: new Date().toISOString(),
+          attemptsAtReport,
+          boardsAtReport,
+        });
+        setStatusNote('Your counselor just checked in.');
+      } else {
+        setStatusNote('The counselor couldn’t check in just now — try again in a moment.');
+      }
+    } catch {
+      if (epoch === counselorEpochRef.current) {
+        setStatusNote('The counselor couldn’t check in just now — try again in a moment.');
+      }
+    } finally {
+      counselorInFlightRef.current = false;
+      setIsCounselorLoading(false);
+    }
+  }, [attempts, boards, course, done, messages, totalAttempts, totalBoards]);
+
+  // Auto-refresh when the Counselor tab is open and the report is missing or
+  // stale. The tried-key guard above stops error loops until new events land.
+  useEffect(() => {
+    if (!hydrated || sideTab !== 'counselor') return;
+    if (!counselor || counselorNewEvents >= COUNSELOR_REFRESH_EVENTS) {
+      fetchCounselorReport();
+    }
+  }, [hydrated, sideTab, counselor, counselorNewEvents, fetchCounselorReport]);
+
   function handleComposerSubmit() {
     const text = composerText.trim();
     if (!text || isDrawing) return;
@@ -195,6 +326,31 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   }, [isStreaming, streamingLesson, activeBoard, initialLesson]);
 
   const activeQuiz = useMemo(() => displayedLesson?.blocks.find((block) => block.type === 'quiz'), [displayedLesson]);
+
+  // Record an attempt only on the FIRST answer per board view. Re-clicks after
+  // that change the displayed selection but record nothing.
+  function handleSelectAnswer(index: number) {
+    // While a board is still streaming, the committed-board bookkeeping
+    // (activeBoard, courseLessonId) refers to the PREVIOUS board — recording
+    // here would attribute the attempt to the wrong lesson, and the selection
+    // would be wiped on commit anyway. Quiz opens once the board lands.
+    if (isStreaming) return;
+    if (selectedAnswer === null && displayedLesson && activeQuiz && activeQuiz.type === 'quiz') {
+      const attempt: QuizAttempt = {
+        id: makeId('attempt'),
+        at: new Date().toISOString(),
+        boardTitle: displayedLesson.title,
+        subject: displayedLesson.subject,
+        question: activeQuiz.question,
+        chosen: activeQuiz.choices[index] ?? 'unknown',
+        correct: index === activeQuiz.answerIndex,
+        courseLessonId: activeBoard?.courseLessonId,
+      };
+      setAttempts((prev) => [...prev, attempt].slice(-MAX_ATTEMPTS));
+      setTotalAttempts((count) => count + 1);
+    }
+    setSelectedAnswer(index);
+  }
 
   function handleReteach(answerIndex: number) {
     if (!activeQuiz || activeQuiz.type !== 'quiz' || !displayedLesson) return;
@@ -282,6 +438,12 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     setCourse(null);
     setDone({});
     setSelectedAnswer(null);
+    setAttempts([]);
+    setCounselor(null);
+    setTotalAttempts(0);
+    setTotalBoards(0);
+    counselorEpochRef.current += 1;
+    counselorTriedKeyRef.current = null;
     setStatusNote('Fresh board. Ask anything.');
     try { window.localStorage.removeItem(STORAGE_KEY); } catch { /* noop */ }
   }
@@ -310,6 +472,12 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
             </button>
             <button type="button" role="tab" aria-selected={sideTab === 'course'} className={sideTab === 'course' ? 'active' : ''} onClick={() => setSideTab('course')}>
               Course{course ? ` · ${courseDoneCount}/${courseLessonCount}` : ''}
+            </button>
+            <button type="button" role="tab" aria-selected={sideTab === 'counselor'} className={sideTab === 'counselor' ? 'active' : ''} onClick={() => setSideTab('counselor')}>
+              Counselor
+              {counselorRefreshPending && sideTab !== 'counselor' && (
+                <span className="counselor-dot" aria-label="New check-in available" />
+              )}
             </button>
           </div>
 
@@ -362,7 +530,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
                 </button>
               </form>
             </div>
-          ) : (
+          ) : sideTab === 'course' ? (
             <div className="course-panel">
               {!course ? (
                 <CourseUpload onFile={handleCurriculumFile} isUploading={isUploading} />
@@ -403,6 +571,96 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
                 </div>
               )}
             </div>
+          ) : (
+            <div className="counselor-panel">
+              {!counselor && isCounselorLoading ? (
+                <div className="counselor-empty">
+                  <p className="counselor-loading">Looking over your session…</p>
+                </div>
+              ) : !counselor ? (
+                <div className="counselor-empty">
+                  <p>
+                    I keep an eye on how your learning is going — what’s clicking, what could use
+                    another pass, and fun places to explore next.
+                  </p>
+                  <button type="button" className="draw-button" onClick={() => fetchCounselorReport(true)}>
+                    Check in with me
+                  </button>
+                </div>
+              ) : (
+                <div className="counselor-report">
+                  {isCounselorLoading && <p className="counselor-loading">Checking in again…</p>}
+                  <p className="counselor-checkin">{counselor.report.checkIn}</p>
+
+                  <div className="counselor-section">
+                    <span className="chalk-kicker-dark">Going strong</span>
+                    <div className="counselor-chips">
+                      {counselor.report.strengths.map((strength) => (
+                        <span key={strength} className="counselor-chip">{strength}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {counselor.report.focusAreas.length > 0 && (
+                    <div className="counselor-section">
+                      <span className="chalk-kicker-dark">Worth another pass</span>
+                      {counselor.report.focusAreas.map((area) => (
+                        <div key={area.topic} className="counselor-focus-card">
+                          <strong>{area.topic}</strong>
+                          <p>{area.why}</p>
+                          <button
+                            type="button"
+                            className="counselor-action"
+                            disabled={isDrawing}
+                            onClick={() => {
+                              setSideTab('tutor');
+                              teach(area.tryThis, conversationContext(), { spokenAs: `Help me get better at ${area.topic}` });
+                            }}
+                          >
+                            Practice this with the tutor
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="counselor-section">
+                    <span className="chalk-kicker-dark">Explore next</span>
+                    <div className="counselor-explore">
+                      {counselor.report.explore.map((idea) => (
+                        <button
+                          type="button"
+                          key={idea.title}
+                          disabled={isDrawing}
+                          onClick={() => {
+                            setSideTab('tutor');
+                            teach(idea.prompt, conversationContext(), { spokenAs: idea.title });
+                          }}
+                        >
+                          {idea.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <p className="counselor-encouragement">{counselor.report.encouragement}</p>
+
+                  <div className="counselor-footer">
+                    <span className="counselor-timestamp">
+                      Checked in {new Date(counselor.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      disabled={isCounselorLoading}
+                      onClick={() => fetchCounselorReport(true)}
+                    >
+                      {isCounselorLoading ? 'Checking…' : 'New check-in'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </aside>
 
@@ -426,7 +684,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
             <LessonRenderer
               lesson={displayedLesson}
               selectedAnswer={selectedAnswer}
-              onSelectAnswer={(index) => setSelectedAnswer(index)}
+              onSelectAnswer={handleSelectAnswer}
               onReteach={handleReteach}
               isDrawing={isDrawing}
             />
