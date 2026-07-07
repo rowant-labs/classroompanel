@@ -21,6 +21,14 @@ export type LessonContext = {
     correctAnswer: string;
     correct: boolean;
   };
+  // Set when the board is a spaced-review retrieval check on something the
+  // student learned earlier (driven by the learner record's due queue).
+  review?: {
+    conceptTitle: string;
+    objective?: string;
+    daysSinceLastSeen?: number;
+    priorStruggle?: boolean;
+  };
 };
 
 export const tutorSystemPrompt = `You are ClassroomPanel, an expert tutor with a living blackboard.
@@ -81,6 +89,20 @@ export function buildLessonPrompt(request: string, context: LessonContext = {}):
       .map((entry) => `${entry.role === 'student' ? 'Student' : 'Tutor'}: ${entry.text}`)
       .join('\n');
     parts.push(`Recent conversation:\n${recent}`);
+  }
+
+  if (context.review) {
+    const r = context.review;
+    parts.push(
+      `SPACED REVIEW board: the student learned "${r.conceptTitle}" earlier` +
+      (r.daysSinceLastSeen !== undefined ? ` (about ${r.daysSinceLastSeen} day${r.daysSinceLastSeen === 1 ? '' : 's'} ago)` : '') +
+      (r.objective ? `. Original objective: ${r.objective}` : '') +
+      `. This board must make the student RETRIEVE before you re-explain: open with a short recall
+challenge (steps block asking them to work it from memory, or a visual with a 'predict what happens'
+prompt) and keep any re-explanation brief and AFTER the recall work. Do not reteach from scratch` +
+      (r.priorStruggle ? '. They struggled with this before, so make the recall on-ramp gentle and concrete' : '') +
+      '. The quiz should test the core idea in a fresh disguise — new numbers, new example, same concept.',
+    );
   }
 
   if (context.adaptation) {

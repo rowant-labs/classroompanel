@@ -89,7 +89,19 @@ function sanitizeSnapshot(raw: unknown): CounselorSnapshot {
       };
     });
 
-  return { attempts, boards, course, recentMessages };
+  let mastery: CounselorSnapshot['mastery'] = null;
+  if (snapshot.mastery && typeof snapshot.mastery === 'object') {
+    const rawMastery = snapshot.mastery as Record<string, unknown>;
+    const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0);
+    mastery = {
+      mastered: num(rawMastery.mastered),
+      proficient: num(rawMastery.proficient),
+      learning: num(rawMastery.learning),
+      dueForReview: num(rawMastery.dueForReview),
+    };
+  }
+
+  return { attempts, boards, course, mastery, recentMessages };
 }
 
 function describeSnapshot(snapshot: CounselorSnapshot): string {
@@ -119,10 +131,19 @@ function describeSnapshot(snapshot: CounselorSnapshot): string {
     const meta = [snapshot.course.subject, snapshot.course.gradeBand].filter(Boolean).join(', ');
     lines.push(
       '',
-      `Course in progress: ${snapshot.course.title}${meta ? ` (${meta})` : ''} — ${snapshot.course.doneLessons} of ${snapshot.course.totalLessons} lessons done.`,
+      `Course in progress: ${snapshot.course.title}${meta ? ` (${meta})` : ''} — ${snapshot.course.doneLessons} of ${snapshot.course.totalLessons} lessons learned (quiz answered correctly, not just viewed).`,
     );
   } else {
     lines.push('', 'Course: none uploaded.');
+  }
+
+  if (snapshot.mastery) {
+    const m = snapshot.mastery;
+    lines.push(
+      '',
+      `Mastery record: ${m.mastered} mastered (remembered across days), ${m.proficient} learned, ${m.learning} in progress, ${m.dueForReview} due for spaced review.` +
+      (m.dueForReview > 0 ? ' If review items are waiting, gently encourage the student to visit the Progress tab and clear one.' : ''),
+    );
   }
 
   if (snapshot.recentMessages.length > 0) {

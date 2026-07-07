@@ -1483,20 +1483,23 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 
 .side-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   border-bottom: 1px solid rgba(248, 241, 210, .14);
 }
 
 .side-tabs button {
-  padding: 12px 10px;
+  padding: 12px 6px;
   border: 0;
   background: transparent;
   color: rgba(244, 238, 218, .56);
   font-weight: 900;
-  font-size: .84rem;
-  letter-spacing: .06em;
+  font-size: .76rem;
+  letter-spacing: .05em;
   text-transform: uppercase;
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .side-tabs button.active {
@@ -1749,6 +1752,24 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 }
 
 .course-lesson.done .lesson-check { border-color: rgba(188, 231, 168, .8); }
+
+.course-lesson.mastered {
+  border-color: rgba(240, 217, 141, .65);
+  background: rgba(240, 217, 141, .07);
+}
+
+.course-lesson.mastered .lesson-check {
+  border-color: rgba(240, 217, 141, .9);
+  color: #f0d98d;
+}
+
+.course-lesson.locked {
+  opacity: .38;
+  cursor: not-allowed;
+}
+
+.course-lesson.locked:hover { border-color: rgba(248, 241, 210, .18); }
+.course-lesson.locked:disabled { cursor: not-allowed; }
 
 .lesson-text { display: grid; gap: 2px; min-width: 0; }
 .lesson-text strong { font-size: .9rem; line-height: 1.25; }
@@ -2095,6 +2116,108 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   background: #f0d98d;
   box-shadow: 0 0 6px rgba(240, 217, 141, .8);
   animation: boardPulseSoft 1.4s ease-in-out infinite;
+}
+
+/* --- progress tab ------------------------------------------------------------ */
+
+.progress-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+
+.progress-section {
+  display: grid;
+  gap: 8px;
+}
+
+.progress-hint {
+  margin: 0;
+  color: rgba(244, 238, 218, .62);
+  font-size: .84rem;
+  line-height: 1.45;
+  max-width: none;
+}
+
+.review-queue {
+  display: grid;
+  gap: 8px;
+}
+
+.review-queue button {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid rgba(240, 217, 141, .45);
+  border-radius: 8px;
+  background: rgba(240, 217, 141, .06);
+  color: #f4eeda;
+  cursor: pointer;
+}
+
+.review-queue button:hover { border-color: rgba(240, 217, 141, .85); }
+.review-queue button:disabled { opacity: .5; cursor: wait; }
+.review-queue strong { font-size: .9rem; line-height: 1.25; }
+.review-queue small { color: rgba(244, 238, 218, .58); font-size: .76rem; }
+
+.mastery-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.mastery-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 6px 4px;
+  border-bottom: 1px dashed rgba(248, 241, 210, .12);
+}
+
+.mastery-title {
+  font-size: .86rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mastery-level {
+  color: rgba(244, 238, 218, .55);
+  font-size: .74rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.level-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid rgba(248, 241, 210, .4);
+}
+
+.level-dot.mastered { background: #f0d98d; border-color: #f0d98d; box-shadow: 0 0 5px rgba(240, 217, 141, .7); }
+.level-dot.proficient { background: #bce7a8; border-color: #bce7a8; }
+.level-dot.learning { background: rgba(244, 238, 218, .35); }
+.level-dot.new { background: transparent; }
+
+.record-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ghost-button.danger {
+  border-color: rgba(255, 138, 128, .7);
+  color: #ffb4ab;
+  background: rgba(255, 138, 128, .08);
 }
 
 @media (max-width: 1080px) {

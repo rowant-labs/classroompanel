@@ -53,5 +53,13 @@ export type CounselorSnapshot = {
     totalLessons: number;
     doneLessons: number;
   } | null;
+  // Learner-record rollup: doneLessons above means proficient-or-better, and
+  // this summary carries the full mastery picture plus the review queue depth.
+  mastery?: {
+    mastered: number;
+    proficient: number;
+    learning: number;
+    dueForReview: number;
+  } | null;
   recentMessages: Array<{ role: 'student' | 'tutor'; text: string }>;
 };

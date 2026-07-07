@@ -8,9 +8,30 @@ import { toLessonView, type LessonView } from '@/lib/lesson-view';
 import type { Course, CourseLesson, CourseUnit } from '@/lib/course-schema';
 import type { CounselorReport } from '@/lib/counselor-schema';
 import type { LessonContext } from '@/lib/tutor-prompt';
+import {
+  addCourseToRecord,
+  conceptForCourseLesson,
+  conceptKeyForCourseLesson,
+  conceptKeyForTopic,
+  courseFrontier,
+  createLearnerRecord,
+  dueConcepts,
+  flatLessonIndex,
+  masteryOf,
+  migrateFromLegacySession,
+  parseLearnerRecord,
+  recordBoardDrawn,
+  recordQuizAttempt,
+  serializeLearnerRecord,
+  summarizeMastery,
+  type ConceptRef,
+  type ConceptState,
+  type LearnerRecord,
+  type MasteryLevel,
+} from '@/lib/learner-record';
 
 type ChatMessage = { id: string; role: 'student' | 'tutor'; text: string };
-type BoardRecord = { id: string; topic: string; lesson: Lesson; model?: string; courseLessonId?: string };
+type BoardRecord = { id: string; topic: string; lesson: Lesson; model?: string; courseLessonId?: string; conceptKey?: string };
 
 type QuizAttempt = {
   id: string;
@@ -36,7 +57,9 @@ type SavedSession = {
   messages: ChatMessage[];
   boards: BoardRecord[];
   course: Course | null;
-  done: Record<string, boolean>;
+  // Legacy done-on-draw flags — read once to seed the learner record migration,
+  // never written anymore. Mastery now lives in the learner record.
+  done?: Record<string, boolean>;
   // Optional so older saves under the same key still load.
   attempts?: QuizAttempt[];
   counselor?: CounselorState | null;
@@ -47,6 +70,9 @@ type SavedSession = {
 };
 
 const STORAGE_KEY = 'classroompanel.session.v2';
+// The learner record lives under its own key: it outlives sessions ("New
+// session" never touches it) and is the unit of export/import.
+const RECORD_KEY = 'classroompanel.record.v1';
 const MAX_BOARDS = 16;
 const MAX_ATTEMPTS = 40;
 // Auto-refresh the counselor once this many new events (attempts or boards)
@@ -73,10 +99,11 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   const [boards, setBoards] = useState<BoardRecord[]>([]);
   const [activeBoardIndex, setActiveBoardIndex] = useState(0);
   const [course, setCourse] = useState<Course | null>(null);
-  const [done, setDone] = useState<Record<string, boolean>>({});
+  const [record, setRecord] = useState<LearnerRecord | null>(null);
+  const [confirmErase, setConfirmErase] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [composerText, setComposerText] = useState('');
-  const [sideTab, setSideTab] = useState<'tutor' | 'course' | 'counselor'>('tutor');
+  const [sideTab, setSideTab] = useState<'tutor' | 'course' | 'progress' | 'counselor'>('tutor');
   const [statusNote, setStatusNote] = useState('Ask anything. The board draws itself.');
   const [isFallbackLoading, setIsFallbackLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -87,25 +114,26 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   const [totalBoards, setTotalBoards] = useState(0);
 
   // What the in-flight generation is about (topic shown in history, course bookkeeping)
-  const pendingRef = useRef<{ topic: string; context: LessonContext; courseLessonId?: string } | null>(null);
+  const pendingRef = useRef<{ topic: string; context: LessonContext; courseLessonId?: string; conceptKey?: string } | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   // Counselor fetch guards: never two requests in flight, and don't auto-retry
   // a failed check-in until something new happens.
   const counselorInFlightRef = useRef(false);
   const counselorTriedKeyRef = useRef<string | null>(null);
 
-  // ---- session persistence -------------------------------------------------
+  // ---- session + record persistence -----------------------------------------
   useEffect(() => {
+    let saved: SavedSession | null = null;
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const saved = JSON.parse(raw) as SavedSession;
+        saved = JSON.parse(raw) as SavedSession;
         if (Array.isArray(saved.boards) && saved.boards.length > 0) {
           setMessages(saved.messages ?? []);
           setBoards(saved.boards);
           setActiveBoardIndex(saved.boards.length - 1);
           setCourse(saved.course ?? null);
-          setDone(saved.done ?? {});
           setAttempts(saved.attempts ?? []);
           setCounselor(saved.counselor ?? null);
           setTotalAttempts(saved.totalAttempts ?? (saved.attempts ?? []).length);
@@ -114,8 +142,26 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
         }
       }
     } catch {
-      // corrupted session — start fresh
+      saved = null; // corrupted session — start fresh
     }
+    // The learner record loads from its own key; a missing record gets seeded
+    // by migrating whatever the legacy session blob knew (one-time upgrade).
+    let loaded: LearnerRecord | null = null;
+    try {
+      const rawRecord = window.localStorage.getItem(RECORD_KEY);
+      if (rawRecord) {
+        const parsed = parseLearnerRecord(rawRecord);
+        if (parsed.ok) loaded = parsed.record;
+      }
+    } catch {
+      loaded = null;
+    }
+    if (!loaded) {
+      loaded = saved
+        ? migrateFromLegacySession({ course: saved.course, done: saved.done, attempts: saved.attempts }, new Date())
+        : createLearnerRecord(new Date());
+    }
+    setRecord(loaded);
     setHydrated(true);
   }, []);
 
@@ -126,7 +172,6 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
         messages: messages.slice(-60),
         boards: boards.slice(-MAX_BOARDS),
         course,
-        done,
         attempts: attempts.slice(-MAX_ATTEMPTS),
         counselor,
         totalAttempts,
@@ -136,7 +181,20 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     } catch {
       // storage full — fine, session just won't persist
     }
-  }, [hydrated, messages, boards, course, done, attempts, counselor, totalAttempts, totalBoards]);
+  }, [hydrated, messages, boards, course, attempts, counselor, totalAttempts, totalBoards]);
+
+  useEffect(() => {
+    if (!hydrated || !record) return;
+    try {
+      window.localStorage.setItem(RECORD_KEY, JSON.stringify(record));
+    } catch {
+      // storage full — record just won't persist this round
+    }
+  }, [hydrated, record]);
+
+  useEffect(() => {
+    setConfirmErase(false);
+  }, [sideTab]);
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -146,21 +204,28 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   const commitBoard = useCallback((lesson: Lesson, model?: string) => {
     const pending = pendingRef.current;
     pendingRef.current = null;
-    const record: BoardRecord = {
+    const conceptKey = pending?.conceptKey
+      ?? (course && pending?.courseLessonId ? conceptKeyForCourseLesson(course.id, pending.courseLessonId) : undefined);
+    const boardRecord: BoardRecord = {
       id: makeId('board'),
       topic: pending?.topic ?? lesson.title,
       lesson,
       model,
       courseLessonId: pending?.courseLessonId,
+      conceptKey,
     };
     setBoards((prev) => {
-      const next = [...prev, record].slice(-MAX_BOARDS);
+      const next = [...prev, boardRecord].slice(-MAX_BOARDS);
       setActiveBoardIndex(next.length - 1);
       return next;
     });
-    if (pending?.courseLessonId) {
-      setDone((prev) => ({ ...prev, [pending.courseLessonId as string]: true }));
-    }
+    // Drawing a board puts its concept in "learning" — completion is earned at
+    // the quiz, never granted for watching. (This replaced the old done-on-draw.)
+    setRecord((prev) => {
+      if (!prev) return prev;
+      const ref = boardConceptRef(prev, course, conceptKey, pending?.courseLessonId, lesson);
+      return recordBoardDrawn(prev, ref, new Date());
+    });
     setMessages((prev) => [...prev, {
       id: makeId('msg'),
       role: 'tutor',
@@ -168,7 +233,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     }]);
     setTotalBoards((count) => count + 1);
     setSelectedAnswer(null);
-  }, []);
+  }, [course]);
 
   const fallbackGenerate = useCallback(async (topic: string, context: LessonContext) => {
     setIsFallbackLoading(true);
@@ -216,13 +281,13 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
 
   const isDrawing = isStreaming || isFallbackLoading;
 
-  const teach = useCallback((request: string, context: LessonContext, options?: { spokenAs?: string; courseLessonId?: string }) => {
+  const teach = useCallback((request: string, context: LessonContext, options?: { spokenAs?: string; courseLessonId?: string; conceptKey?: string }) => {
     if (isDrawing) return;
     const spoken = options?.spokenAs ?? request;
     setMessages((prev) => [...prev, { id: makeId('msg'), role: 'student', text: spoken }]);
     setSelectedAnswer(null);
     setStatusNote('The tutor is drawing…');
-    pendingRef.current = { topic: spoken, context, courseLessonId: options?.courseLessonId };
+    pendingRef.current = { topic: spoken, context, courseLessonId: options?.courseLessonId, conceptKey: options?.conceptKey };
     submit({ request, context });
   }, [isDrawing, submit]);
 
@@ -264,8 +329,9 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
           subject: course.subject,
           gradeBand: course.gradeBand,
           totalLessons: countLessons(course),
-          doneLessons: Object.keys(done).filter((key) => done[key]).length,
+          doneLessons: record ? courseProficientCount(record, course) : 0,
         } : null,
+        mastery: record ? summarizeMastery(record, new Date()) : null,
         recentMessages: messages.slice(-8).map((message) => ({ role: message.role, text: message.text })),
       };
       const response = await fetch('/api/counselor', {
@@ -295,7 +361,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
       counselorInFlightRef.current = false;
       setIsCounselorLoading(false);
     }
-  }, [attempts, boards, course, done, messages, totalAttempts, totalBoards]);
+  }, [attempts, boards, course, record, messages, totalAttempts, totalBoards]);
 
   // Auto-refresh when the Counselor tab is open and the report is missing or
   // stale. The tried-key guard above stops error loops until new events land.
@@ -336,6 +402,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     // would be wiped on commit anyway. Quiz opens once the board lands.
     if (isStreaming) return;
     if (selectedAnswer === null && displayedLesson && activeQuiz && activeQuiz.type === 'quiz') {
+      const correct = index === activeQuiz.answerIndex;
       const attempt: QuizAttempt = {
         id: makeId('attempt'),
         at: new Date().toISOString(),
@@ -343,11 +410,23 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
         subject: displayedLesson.subject,
         question: activeQuiz.question,
         chosen: activeQuiz.choices[index] ?? 'unknown',
-        correct: index === activeQuiz.answerIndex,
+        correct,
         courseLessonId: activeBoard?.courseLessonId,
       };
       setAttempts((prev) => [...prev, attempt].slice(-MAX_ATTEMPTS));
       setTotalAttempts((count) => count + 1);
+      // The learner record is the mastery source of truth — this is the moment
+      // that advances (or resets) a concept's level and review schedule.
+      setRecord((prev) => {
+        if (!prev) return prev;
+        const ref = boardConceptRef(prev, course, activeBoard?.conceptKey, activeBoard?.courseLessonId, displayedLesson);
+        return recordQuizAttempt(prev, ref, {
+          id: attempt.id,
+          question: attempt.question,
+          chosen: attempt.chosen,
+          correct,
+        }, new Date());
+      });
     }
     setSelectedAnswer(index);
   }
@@ -381,7 +460,14 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     teach(
       correct ? 'Continue from the last board — go one level deeper.' : 'Reteach the last board’s idea a different way.',
       context,
-      { spokenAs: correct ? `I answered “${activeQuiz.choices[answerIndex]}” — got it right! Go deeper.` : `I picked “${activeQuiz.choices[answerIndex]}” and got it wrong. Show me another way.` },
+      {
+        spokenAs: correct ? `I answered “${activeQuiz.choices[answerIndex]}” — got it right! Go deeper.` : `I picked “${activeQuiz.choices[answerIndex]}” and got it wrong. Show me another way.`,
+        // Follow-up boards stay attributed to the same concept, so the mastery
+        // loop (and course gating) tracks the reteach cycle instead of forking
+        // a new concept per board title.
+        courseLessonId: activeBoard?.courseLessonId,
+        conceptKey: activeBoard?.conceptKey ?? conceptKeyForTopic(displayedLesson.title),
+      },
     );
   }
 
@@ -397,7 +483,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
       const data = await response.json();
       if (response.ok && data?.course) {
         setCourse(data.course as Course);
-        setDone({});
+        setRecord((prev) => (prev ? addCourseToRecord(prev, data.course as Course, new Date()) : prev));
         setSideTab('course');
         setStatusNote(`Course ready: ${data.course.title}. Pick a lesson to start.`);
         setMessages((prev) => [...prev, {
@@ -428,7 +514,77 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
         lessonTitle: lesson.title,
         objective: lesson.objective,
       },
-    }, { spokenAs: `Teach me: ${lesson.title}`, courseLessonId: lesson.id });
+    }, { spokenAs: `Teach me: ${lesson.title}`, courseLessonId: lesson.id, conceptKey: conceptKeyForCourseLesson(course.id, lesson.id) });
+  }
+
+  // ---- spaced review + record portability ------------------------------------
+  function startReview(concept: ConceptState) {
+    const lastSeen = concept.lastAttemptAt ?? concept.introducedAt;
+    const daysSinceLastSeen = Math.max(0, Math.round((Date.now() - Date.parse(lastSeen)) / (24 * 60 * 60 * 1000)));
+    const context: LessonContext = {
+      ...conversationContext(),
+      review: {
+        conceptTitle: concept.title,
+        daysSinceLastSeen,
+        priorStruggle: concept.incorrectCount > 0,
+      },
+    };
+    if (course && concept.kind === 'course-lesson' && concept.courseId === course.id && concept.lessonId) {
+      const located = locateCourseLesson(course, concept.lessonId);
+      if (located) {
+        context.review = { ...context.review!, objective: located.lesson.objective };
+        context.course = {
+          title: course.title,
+          subject: course.subject,
+          gradeBand: course.gradeBand,
+          unitTitle: located.unit.title,
+          lessonTitle: located.lesson.title,
+          objective: located.lesson.objective,
+        };
+      }
+    }
+    setSideTab('tutor');
+    teach(
+      `Spaced review: check whether I still remember "${concept.title}".`,
+      context,
+      { spokenAs: `Quick review: ${concept.title}`, courseLessonId: concept.lessonId, conceptKey: concept.id },
+    );
+  }
+
+  function handleExportRecord() {
+    if (!record) return;
+    const blob = new Blob([serializeLearnerRecord(record)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `classroompanel-record-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setStatusNote('Learning record exported — it’s yours.');
+  }
+
+  async function handleImportRecord(file: File) {
+    try {
+      const parsed = parseLearnerRecord(await file.text());
+      if (parsed.ok) {
+        setRecord(parsed.record);
+        setStatusNote('Learning record imported. Welcome back.');
+      } else {
+        setStatusNote(`Couldn’t import that file: ${parsed.error}`);
+      }
+    } catch {
+      setStatusNote('Couldn’t read that file — try again.');
+    }
+  }
+
+  function handleEraseRecord() {
+    if (!confirmErase) {
+      setConfirmErase(true);
+      return;
+    }
+    setRecord(createLearnerRecord(new Date()));
+    setConfirmErase(false);
+    setStatusNote('Learning record erased. Fresh start.');
   }
 
   function resetSession() {
@@ -436,7 +592,6 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     setBoards([]);
     setActiveBoardIndex(0);
     setCourse(null);
-    setDone({});
     setSelectedAnswer(null);
     setAttempts([]);
     setCounselor(null);
@@ -445,11 +600,20 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     counselorEpochRef.current += 1;
     counselorTriedKeyRef.current = null;
     setStatusNote('Fresh board. Ask anything.');
+    // The learner record deliberately survives — sessions are disposable, the
+    // record is not. Erasing it is a separate, explicit act in the Progress tab.
     try { window.localStorage.removeItem(STORAGE_KEY); } catch { /* noop */ }
   }
 
   const courseLessonCount = course ? countLessons(course) : 0;
-  const courseDoneCount = course ? Object.keys(done).filter((key) => done[key]).length : 0;
+  const courseDoneCount = course && record ? courseProficientCount(record, course) : 0;
+  const frontier = course && record ? courseFrontier(record, course) : 0;
+  const reviewDue = record ? dueConcepts(record, new Date()) : [];
+  const masterySummary = record ? summarizeMastery(record, new Date()) : null;
+  const trackedConcepts = record
+    ? Object.values(record.concepts).sort((a, b) =>
+        Date.parse(b.lastAttemptAt ?? b.introducedAt) - Date.parse(a.lastAttemptAt ?? a.introducedAt))
+    : [];
 
   return (
     <main className="terminal-page">
@@ -472,6 +636,12 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
             </button>
             <button type="button" role="tab" aria-selected={sideTab === 'course'} className={sideTab === 'course' ? 'active' : ''} onClick={() => setSideTab('course')}>
               Course{course ? ` · ${courseDoneCount}/${courseLessonCount}` : ''}
+            </button>
+            <button type="button" role="tab" aria-selected={sideTab === 'progress'} className={sideTab === 'progress' ? 'active' : ''} onClick={() => setSideTab('progress')}>
+              Progress
+              {reviewDue.length > 0 && sideTab !== 'progress' && (
+                <span className="counselor-dot" aria-label={`${reviewDue.length} concepts due for review`} />
+              )}
             </button>
             <button type="button" role="tab" aria-selected={sideTab === 'counselor'} className={sideTab === 'counselor' ? 'active' : ''} onClick={() => setSideTab('counselor')}>
               Counselor
@@ -540,7 +710,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
                     <span className="chalk-kicker-dark">{course.subject} · {course.gradeBand}</span>
                     <h2>{course.title}</h2>
                     <p>{course.overview}</p>
-                    <button type="button" className="ghost-button" onClick={() => { setCourse(null); setDone({}); }}>
+                    <button type="button" className="ghost-button" onClick={() => setCourse(null)}>
                       Replace curriculum
                     </button>
                   </div>
@@ -549,27 +719,118 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
                       <h3>{unit.title}</h3>
                       <p>{unit.summary}</p>
                       <ul>
-                        {unit.lessons.map((lesson) => (
-                          <li key={lesson.id}>
-                            <button
-                              type="button"
-                              className={done[lesson.id] ? 'course-lesson done' : 'course-lesson'}
-                              onClick={() => teachCourseLesson(unit, lesson)}
-                              disabled={isDrawing}
-                            >
-                              <span className="lesson-check" aria-hidden="true">{done[lesson.id] ? '✓' : ''}</span>
-                              <span className="lesson-text">
-                                <strong>{lesson.title}</strong>
-                                <small>{lesson.objective}</small>
-                              </span>
-                            </button>
-                          </li>
-                        ))}
+                        {unit.lessons.map((lesson) => {
+                          const level = masteryOf(record ? conceptForCourseLesson(record, course.id, lesson.id) : undefined);
+                          // Mastery gating: everything up to the frontier (the
+                          // first not-yet-proficient lesson) is open — earlier
+                          // lessons stay open for review; later ones wait.
+                          const locked = flatLessonIndex(course, lesson.id) > frontier;
+                          return (
+                            <li key={lesson.id}>
+                              <button
+                                type="button"
+                                className={`course-lesson ${level === 'mastered' ? 'mastered' : ''} ${level === 'proficient' ? 'done' : ''} ${locked ? 'locked' : ''}`.trim()}
+                                onClick={() => teachCourseLesson(unit, lesson)}
+                                disabled={isDrawing || locked}
+                                title={locked ? 'Answer the earlier checks correctly to unlock this lesson.' : undefined}
+                              >
+                                <span className="lesson-check" aria-hidden="true">{masteryGlyph(level, locked)}</span>
+                                <span className="lesson-text">
+                                  <strong>{lesson.title}</strong>
+                                  <small>{locked ? 'Unlocks after the lesson before it.' : lesson.objective}</small>
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </section>
                   ))}
                 </div>
               )}
+            </div>
+          ) : sideTab === 'progress' ? (
+            <div className="progress-panel">
+              <div className="progress-section">
+                <span className="chalk-kicker-dark">Due for review</span>
+                {reviewDue.length > 0 ? (
+                  <>
+                    <p className="progress-hint">
+                      Answering these again after a break is what makes learning stick.
+                    </p>
+                    <div className="review-queue">
+                      {reviewDue.slice(0, 8).map((concept) => (
+                        <button type="button" key={concept.id} disabled={isDrawing} onClick={() => startReview(concept)}>
+                          <strong>{concept.title}</strong>
+                          <small>{masteryLabel(masteryOf(concept))} · last seen {daysAgoLabel(concept.lastAttemptAt ?? concept.introducedAt)}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="progress-hint">
+                    Nothing due right now. Review checks appear here after you learn things — spaced out so they stick.
+                  </p>
+                )}
+              </div>
+
+              <div className="progress-section">
+                <span className="chalk-kicker-dark">Mastery</span>
+                {masterySummary && (masterySummary.mastered + masterySummary.proficient + masterySummary.learning > 0) ? (
+                  <>
+                    <div className="counselor-chips">
+                      <span className="counselor-chip">★ {masterySummary.mastered} mastered</span>
+                      <span className="counselor-chip">✓ {masterySummary.proficient} learned</span>
+                      <span className="counselor-chip">· {masterySummary.learning} in progress</span>
+                    </div>
+                    <ul className="mastery-list">
+                      {trackedConcepts.slice(0, 30).map((concept) => {
+                        const level = masteryOf(concept);
+                        return (
+                          <li key={concept.id} className="mastery-row">
+                            <span className={`level-dot ${level}`} aria-hidden="true" />
+                            <span className="mastery-title">{concept.title}</span>
+                            <span className="mastery-level">{masteryLabel(level)}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="progress-hint">
+                    Your mastery map is empty so far — answer a board’s quick check to start it.
+                  </p>
+                )}
+              </div>
+
+              <div className="progress-section record-tools">
+                <span className="chalk-kicker-dark">Your record</span>
+                <p className="progress-hint">
+                  This learning record belongs to you — take it with you, bring it back, or start over. New sessions never erase it.
+                </p>
+                <div className="record-buttons">
+                  <button type="button" className="ghost-button" onClick={handleExportRecord} disabled={!record}>
+                    Export
+                  </button>
+                  <button type="button" className="ghost-button" onClick={() => importInputRef.current?.click()}>
+                    Import
+                  </button>
+                  <button type="button" className={`ghost-button ${confirmErase ? 'danger' : ''}`} onClick={handleEraseRecord}>
+                    {confirmErase ? 'Really erase?' : 'Erase record'}
+                  </button>
+                </div>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  hidden
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) handleImportRecord(file);
+                    event.target.value = '';
+                  }}
+                />
+              </div>
             </div>
           ) : (
             <div className="counselor-panel">
@@ -737,6 +998,78 @@ function CourseUpload({ onFile, isUploading }: { onFile: (file: File) => void; i
 
 function countLessons(course: Course): number {
   return course.units.reduce((total, unit) => total + unit.lessons.length, 0);
+}
+
+// Resolve which concept a board belongs to, in priority order: an explicit
+// concept key carried through teach() (review/reteach continuity), the course
+// lesson it was taught from, else an ad-hoc topic keyed by board title.
+function boardConceptRef(
+  record: LearnerRecord,
+  course: Course | null,
+  conceptKey: string | undefined,
+  courseLessonId: string | undefined,
+  lesson: { title: string; subject: string },
+): ConceptRef {
+  if (conceptKey) {
+    const existing = record.concepts[conceptKey];
+    if (existing) {
+      return {
+        key: conceptKey,
+        kind: existing.kind,
+        courseId: existing.courseId,
+        lessonId: existing.lessonId,
+        title: existing.title,
+        subject: existing.subject,
+      };
+    }
+  }
+  if (course && courseLessonId) {
+    const located = locateCourseLesson(course, courseLessonId);
+    if (located) {
+      return {
+        key: conceptKeyForCourseLesson(course.id, courseLessonId),
+        kind: 'course-lesson',
+        courseId: course.id,
+        lessonId: courseLessonId,
+        title: located.lesson.title,
+        subject: course.subject,
+      };
+    }
+  }
+  return { key: conceptKeyForTopic(lesson.title), kind: 'topic', title: lesson.title, subject: lesson.subject };
+}
+
+function courseProficientCount(record: LearnerRecord, course: Course): number {
+  let count = 0;
+  for (const unit of course.units) {
+    for (const lesson of unit.lessons) {
+      const level = masteryOf(conceptForCourseLesson(record, course.id, lesson.id));
+      if (level === 'proficient' || level === 'mastered') count += 1;
+    }
+  }
+  return count;
+}
+
+function masteryGlyph(level: MasteryLevel, locked: boolean): string {
+  if (locked) return '·';
+  if (level === 'mastered') return '★';
+  if (level === 'proficient') return '✓';
+  if (level === 'learning') return '…';
+  return '';
+}
+
+function masteryLabel(level: MasteryLevel): string {
+  if (level === 'mastered') return 'mastered';
+  if (level === 'proficient') return 'learned';
+  if (level === 'learning') return 'in progress';
+  return 'new';
+}
+
+function daysAgoLabel(iso: string): string {
+  const days = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / (24 * 60 * 60 * 1000)));
+  if (days === 0) return 'earlier today';
+  if (days === 1) return 'yesterday';
+  return `${days} days ago`;
 }
 
 function locateCourseLesson(course: Course, lessonId: string): { unit: CourseUnit; lesson: CourseLesson } | null {
