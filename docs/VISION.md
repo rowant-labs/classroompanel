@@ -124,7 +124,7 @@ The things most likely to kill this, reviewed quarterly:
 
 - **Now:** Open-source release — AGPL license, contributor terms, self-host docs (this repository, as of this document). Harden the mastery loop: do-blocks as the lesson's atomic unit, mastery gating, and spaced review driven by a portable learner record that replaces today's local session store. Hosted alpha for homeschool families, BYOK-first, with course and record export from day one.
 - **Next:** Parent dashboard as a first-class surface. Teacher tier: build-a-course, join-by-link, monitor. Prepaid credits for non-technical families. Course-pack import; first grant applications for subsidized access.
-- **Later:** Community curriculum library with openly-licensed packs. Video and simulation block types as economics allow. Verified-consent child profiles. Institutional interop when demand pulls.
+- **Later:** Community curriculum library with openly-licensed packs. Video and simulation block types as economics allow. Verified-consent child profiles. Institutional interop when demand pulls. Verifiable mastery credentials: signed, standards-based exports of the learner record (Open Badges / W3C Verifiable Credentials) that third parties can check without trusting our servers — with an optional blockchain-anchored display layer (attestations or collectible mastery badges, e.g. on Base) *only* behind hard triggers: a named verifier who needs it, parent opt-in, and nothing derived from an individual child's record ever written to a public chain. Researched and tabled July 2026; the chain is a display/durability option on top of signed credentials, never the source of truth.
 
 ---
 
