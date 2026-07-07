@@ -1,6 +1,7 @@
 import {
   createLearnerRecord,
   recordBoardDrawn,
+  recordPracticeEvent,
   recordQuizAttempt,
   addCourseToRecord,
   masteryOf,
@@ -11,6 +12,7 @@ import {
   summarizeMastery,
   courseFrontier,
   flatLessonIndex,
+  isLessonLocked,
   serializeLearnerRecord,
   parseLearnerRecord,
   migrateFromLegacySession,
@@ -120,6 +122,9 @@ for (let i = 0; i < REVIEW_INTERVALS_DAYS.length + 2; i += 1) {
   assert(Date.parse(concept.dueAt as string) - cursor.getTime() === expectedGap, `correct #${i + 1} schedules a ${expectedGap / DAY}-day gap`);
   cursor = new Date(Date.parse(concept.dueAt as string));
 }
+// Stage is documented as "index of the NEXT gap" — it must stay a valid index
+// no matter how long the streak, so exported records never hold gap[stage] = undefined.
+assert(ladder.concepts[topicRef.key].stage === REVIEW_INTERVALS_DAYS.length - 1, 'stage caps at the last valid gap index');
 
 // --- Due queue: filtering and ordering ---
 let dueRec = createLearnerRecord(T0);
@@ -151,11 +156,71 @@ assert(courseFrontier(gate, course) === 3, 'a fully proficient course unlocks ev
 assert(flatLessonIndex(course, 'l3') === 2, 'flat index spans units in order');
 assert(flatLessonIndex(course, 'nope') === -1, 'unknown lesson id yields -1');
 
+// --- Regression never re-locks earned content ---
+// gate currently has l1..l3 proficient. A missed spaced review on l1 pulls the
+// frontier back — but l2/l3 were demonstrated and must stay open.
+gate = recordQuizAttempt(gate, l1Ref, { id: 'g5', question: 'q', chosen: 'wrong', correct: false }, later(2 * HOUR));
+assert(courseFrontier(gate, course) === 0, 'a regressed early lesson pulls the frontier back');
+assert(!isLessonLocked(gate, course, 'l1'), 'the frontier lesson itself is open');
+assert(!isLessonLocked(gate, course, 'l2') && !isLessonLocked(gate, course, 'l3'), 'earned lessons never re-lock after an early regression');
+const freshGate = createLearnerRecord(T0);
+assert(!isLessonLocked(freshGate, course, 'l1'), 'the first lesson starts open');
+assert(isLessonLocked(freshGate, course, 'l2') && isLessonLocked(freshGate, course, 'l3'), 'unearned lessons past the frontier stay locked');
+
+// --- Practice events (predict / selfExplain) are evidence, never grades ---
+// The honesty rule: wrong predictions and self-marked gaps must never punish
+// mastery, or students learn to stop predicting and stop being honest.
+let practice = createLearnerRecord(T0);
+practice = recordBoardDrawn(practice, l1Ref, T0);
+practice = recordQuizAttempt(practice, l1Ref, { id: 'pq1', question: 'q', chosen: 'c', correct: true }, later(HOUR));
+const graded = practice.concepts[l1Ref.key];
+const gradedSnapshot = {
+  correctCount: graded.correctCount,
+  incorrectCount: graded.incorrectCount,
+  streak: graded.streak,
+  stage: graded.stage,
+  dueAt: graded.dueAt,
+  spacedCorrect: graded.spacedCorrect,
+};
+practice = recordPracticeEvent(practice, l1Ref, { id: 'pp1', kind: 'predict', prompt: 'What happens?', response: 'It falls', correct: false }, later(2 * HOUR));
+practice = recordPracticeEvent(practice, l1Ref, { id: 'pp2', kind: 'selfExplain', prompt: 'Say it back', response: 'Speed is distance over time', correct: false }, later(3 * HOUR));
+const afterPractice = practice.concepts[l1Ref.key];
+assert(masteryOf(afterPractice) === 'proficient', 'wrong practice never demotes mastery');
+assert(
+  afterPractice.correctCount === gradedSnapshot.correctCount &&
+  afterPractice.incorrectCount === gradedSnapshot.incorrectCount &&
+  afterPractice.streak === gradedSnapshot.streak &&
+  afterPractice.stage === gradedSnapshot.stage &&
+  afterPractice.dueAt === gradedSnapshot.dueAt &&
+  afterPractice.spacedCorrect === gradedSnapshot.spacedCorrect,
+  'practice events leave counters, streak, stage, and schedule untouched',
+);
+assert(afterPractice.lastAttemptAt === later(3 * HOUR).toISOString(), 'practice keeps last-seen truthful');
+assert(practice.attempts.length === 3, 'practice events land in the evidence window');
+assert(practice.attempts[1].kind === 'predict' && practice.attempts[2].kind === 'selfExplain', 'practice attempts carry their kind');
+assert(practice.attempts[0].kind === 'quiz', 'graded attempts are stamped quiz');
+
+// A practice event on a NEVER-seen concept marks it learning (they did something).
+let freshPractice = createLearnerRecord(T0);
+freshPractice = recordPracticeEvent(freshPractice, topicRef, { id: 'pp3', kind: 'predict', prompt: 'q', response: 'r', correct: true }, T0);
+assert(masteryOf(freshPractice.concepts[topicRef.key]) === 'learning', 'a practice act on a new concept reaches learning, never proficient');
+assert(courseFrontier(recordPracticeEvent(createLearnerRecord(T0), l1Ref, { id: 'pp4', kind: 'predict', prompt: 'q', response: 'r', correct: true }, T0), course) === 0,
+  'a correct prediction alone never advances the course frontier');
+
+// Practice attempts round-trip (kind survives export/import), and records
+// written before the kind field existed still parse.
+const practiceTrip = parseLearnerRecord(serializeLearnerRecord(practice));
+assert(practiceTrip.ok && isDeepStrictEqual(practiceTrip.ok ? practiceTrip.record : null, practice), 'practice kinds survive the round-trip');
+const legacyAttempt = JSON.parse(serializeLearnerRecord(practice));
+for (const attempt of legacyAttempt.attempts) delete attempt.kind;
+assert(parseLearnerRecord(JSON.stringify(legacyAttempt)).ok, 'records without kind (older writers) still import');
+
 // --- Mutators do not mutate their inputs ---
 const before = createLearnerRecord(T0);
 const frozen = JSON.stringify(before);
 recordQuizAttempt(before, topicRef, { id: 'x', question: 'q', chosen: 'c', correct: true }, T0);
 recordBoardDrawn(before, topicRef, T0);
+recordPracticeEvent(before, topicRef, { id: 'x2', kind: 'predict', prompt: 'q', response: 'r', correct: true }, T0);
 addCourseToRecord(before, course, T0);
 assert(JSON.stringify(before) === frozen, 'record mutators must not mutate the input record');
 
@@ -202,5 +267,20 @@ assert(masteryOf(conceptForCourseLesson(migrated, 'course-1', 'l1')) === 'profic
 assert(masteryOf(conceptForCourseLesson(migrated, 'course-1', 'l2')) === 'learning', 'legacy done-on-draw only reaches learning, never proficient');
 assert(masteryOf(migrated.concepts[conceptKeyForTopic('Free topic')]) === 'learning', 'ad-hoc legacy attempts migrate as topics');
 assert(courseFrontier(migrated, course) === 1, 'migrated record gates on real mastery, not legacy done flags');
+
+// Post-do-block sessions carry practice attempts (kind predict/selfExplain);
+// re-migration must replay them as PRACTICE, never as graded quiz answers.
+const remigrated = migrateFromLegacySession({
+  course,
+  attempts: [
+    { id: 'r1', at: later(-DAY).toISOString(), boardTitle: 'Speed', question: 'guess', chosen: 'wrong guess', correct: false, kind: 'predict', courseLessonId: 'l1' },
+    { id: 'r2', at: later(-DAY + HOUR).toISOString(), boardTitle: 'Speed', question: 'say it', chosen: 'my words', correct: false, kind: 'selfExplain', courseLessonId: 'l1' },
+    { id: 'r3', at: later(-DAY + 2 * HOUR).toISOString(), boardTitle: 'Speed', question: 'q', chosen: 'c', correct: true, kind: 'quiz', courseLessonId: 'l1' },
+  ],
+}, T0);
+const remigratedL1 = conceptForCourseLesson(remigrated, 'course-1', 'l1');
+assert(remigratedL1?.incorrectCount === 0, 'migrated practice misses never count as graded misses');
+assert(remigratedL1?.correctCount === 1 && masteryOf(remigratedL1) === 'proficient', 'migrated quiz attempts still grade');
+assert(remigrated.attempts.filter((a) => a.kind === 'predict' || a.kind === 'selfExplain').length === 2, 'migrated practice attempts keep their kind');
 
 console.log('Learner record: all assertions passed.');

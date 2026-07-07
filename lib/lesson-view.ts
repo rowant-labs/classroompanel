@@ -58,6 +58,21 @@ function coerceMark(raw: unknown, index: number): AnyRecord | null {
   return out;
 }
 
+// Choices for graded/committed blocks must be taken as-is or not at all:
+// silently dropping a blank entry would shift answerIndex onto the wrong
+// choice, mis-grading the student. These blocks only render once complete
+// (their last field streamed), so an invalid entry means a bad block, not a
+// half-written one.
+function coerceChoices(raw: unknown[], max: number): string[] | null {
+  if (raw.length < 2 || raw.length > max) return null;
+  const choices: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'string' || entry.trim().length === 0) return null;
+    choices.push(entry);
+  }
+  return choices;
+}
+
 function coerceBlock(raw: unknown, index: number): LessonBlock | null {
   if (!raw || typeof raw !== 'object') return null;
   const block = raw as AnyRecord;
@@ -216,10 +231,31 @@ function coerceBlock(raw: unknown, index: number): LessonBlock | null {
       const question = str(block.question);
       const explanation = str(block.explanation);
       if (!question || !explanation || !Array.isArray(block.choices)) return null;
-      const choices = block.choices.filter((choice): choice is string => typeof choice === 'string' && choice.trim().length > 0).slice(0, 5);
+      const choices = coerceChoices(block.choices, 5);
       const answerIndex = num(block.answerIndex);
-      if (choices.length < 2 || answerIndex === null || !Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= choices.length) return null;
+      if (!choices || answerIndex === null || !Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= choices.length) return null;
       return { id, type: 'quiz', question, choices, answerIndex, explanation } as LessonBlock;
+    }
+    case 'predict': {
+      // "reveal" streams last, so requiring it means the block only appears
+      // once it can honor a committed prediction.
+      const setup = str(block.setup);
+      const question = str(block.question);
+      const reveal = str(block.reveal);
+      if (!setup || !question || !reveal || !Array.isArray(block.choices)) return null;
+      const choices = coerceChoices(block.choices, 4);
+      const answerIndex = num(block.answerIndex);
+      if (!choices || answerIndex === null || !Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= choices.length) return null;
+      return { id, type: 'predict', setup, question, choices, answerIndex, reveal } as LessonBlock;
+    }
+    case 'selfExplain': {
+      // "exemplar" streams last — same trick: no half-built reveal side.
+      const prompt = str(block.prompt);
+      const exemplar = str(block.exemplar);
+      if (!prompt || !exemplar || !Array.isArray(block.keyPoints)) return null;
+      const keyPoints = block.keyPoints.filter((point): point is string => typeof point === 'string' && point.trim().length > 0).slice(0, 4);
+      if (keyPoints.length < 2) return null;
+      return { id, type: 'selfExplain', prompt, keyPoints, exemplar } as LessonBlock;
     }
     default:
       return null;

@@ -50,10 +50,17 @@ export const conceptStateSchema = z.object({
 });
 export type ConceptState = z.infer<typeof conceptStateSchema>;
 
+export const attemptKinds = ['quiz', 'predict', 'selfExplain'] as const;
+export type AttemptKind = (typeof attemptKinds)[number];
+
 export const recordAttemptSchema = z.object({
   id: z.string(),
   at: z.string(),
   conceptId: z.string(),
+  // What kind of doing this was. Absent means 'quiz' (records written before
+  // this field existed). Only quiz attempts move mastery; predict and
+  // selfExplain are practice evidence — see recordPracticeEvent.
+  kind: z.enum(attemptKinds).optional(),
   question: z.string(),
   chosen: z.string(),
   correct: z.boolean(),
@@ -170,7 +177,11 @@ export function recordQuizAttempt(
     }
     const gapDays = REVIEW_INTERVALS_DAYS[Math.min(concept.stage, REVIEW_INTERVALS_DAYS.length - 1)];
     concept.dueAt = new Date(now.getTime() + gapDays * DAY_MS).toISOString();
-    concept.stage = Math.min(concept.stage + 1, REVIEW_INTERVALS_DAYS.length);
+    // Cap at the LAST VALID index — stage is documented as "index of the next
+    // gap", so an exported record must never hold an out-of-range stage.
+    // (Records written before this cap may hold length; reads above already
+    // clamp, and the next correct answer re-caps it.)
+    concept.stage = Math.min(concept.stage + 1, REVIEW_INTERVALS_DAYS.length - 1);
   } else {
     concept.incorrectCount += 1;
     concept.streak = 0;
@@ -181,9 +192,39 @@ export function recordQuizAttempt(
     id: attempt.id,
     at,
     conceptId: ref.key,
+    kind: 'quiz' as const,
     question: attempt.question,
     chosen: attempt.chosen,
     correct: attempt.correct,
+  }].slice(-MAX_RECORD_ATTEMPTS);
+  next.updatedAt = at;
+  return next;
+}
+
+// Practice events — predictions and self-explanations — are retrieval acts
+// worth keeping as evidence for counselors and parents, but they NEVER move
+// mastery: predictions are supposed to be safe to get wrong (they prime the
+// learning), and self-marked work must not gate progression. Only graded quiz
+// answers (recordQuizAttempt) touch counters, streaks, and the review schedule.
+export function recordPracticeEvent(
+  record: LearnerRecord,
+  ref: ConceptRef,
+  event: { id: string; kind: Exclude<AttemptKind, 'quiz'>; prompt: string; response: string; correct: boolean },
+  now: Date,
+): LearnerRecord {
+  const next = cloned(record);
+  const concept = ensureConcept(next, ref, now);
+  const at = now.toISOString();
+  // "Last seen" stays truthful, but counters, streak, stage, and dueAt don't move.
+  concept.lastAttemptAt = at;
+  next.attempts = [...next.attempts, {
+    id: event.id,
+    at,
+    conceptId: ref.key,
+    kind: event.kind,
+    question: event.prompt,
+    chosen: event.response,
+    correct: event.correct,
   }].slice(-MAX_RECORD_ATTEMPTS);
   next.updatedAt = at;
   return next;
@@ -251,6 +292,19 @@ export function courseFrontier(record: LearnerRecord, course: Course): number {
   return index; // whole course proficient — nothing locked
 }
 
+// The lock rule, in one place so every surface agrees: a lesson is locked when
+// it sits past the frontier AND the learner has not already earned it. The
+// second clause matters: a missed spaced review can regress an early concept
+// and pull the frontier back, but content the learner already demonstrated
+// (proficient or mastered) must never re-lock.
+export function isLessonLocked(record: LearnerRecord, course: Course, lessonId: string): boolean {
+  const index = flatLessonIndex(course, lessonId);
+  if (index === -1) return false;
+  if (index <= courseFrontier(record, course)) return false;
+  const level = masteryOf(conceptForCourseLesson(record, course.id, lessonId));
+  return level !== 'proficient' && level !== 'mastered';
+}
+
 export function flatLessonIndex(course: Course, lessonId: string): number {
   let index = 0;
   for (const unit of course.units) {
@@ -303,6 +357,9 @@ export type LegacySessionSlice = {
     question?: string;
     chosen?: string;
     correct?: boolean;
+    // Present in post-do-block sessions. Practice kinds must replay as
+    // practice, never as graded quiz answers.
+    kind?: string;
     courseLessonId?: string;
   }>;
 };
@@ -348,17 +405,25 @@ export function migrateFromLegacySession(session: LegacySessionSlice, now: Date)
   for (const legacy of session.attempts ?? []) {
     const title = legacy.boardTitle ?? 'Earlier topic';
     const at = legacy.at ? new Date(legacy.at) : now;
-    record = recordQuizAttempt(
-      record,
-      refFor(legacy.courseLessonId, title, legacy.subject),
-      {
-        id: legacy.id ?? `migrated-${Math.random().toString(36).slice(2, 10)}`,
+    const when = Number.isNaN(at.getTime()) ? now : at;
+    const ref = refFor(legacy.courseLessonId, title, legacy.subject);
+    const id = legacy.id ?? `migrated-${Math.random().toString(36).slice(2, 10)}`;
+    if (legacy.kind === 'predict' || legacy.kind === 'selfExplain') {
+      record = recordPracticeEvent(record, ref, {
+        id,
+        kind: legacy.kind,
+        prompt: legacy.question ?? '',
+        response: legacy.chosen ?? '',
+        correct: legacy.correct === true,
+      }, when);
+    } else {
+      record = recordQuizAttempt(record, ref, {
+        id,
         question: legacy.question ?? '',
         chosen: legacy.chosen ?? '',
         correct: legacy.correct === true,
-      },
-      Number.isNaN(at.getTime()) ? now : at,
-    );
+      }, when);
+    }
   }
 
   return record;

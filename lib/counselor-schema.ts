@@ -44,6 +44,10 @@ export type CounselorSnapshot = {
     question: string;
     chosen: string;
     correct: boolean;
+    // 'quiz' (graded; absent means quiz too), 'predict' (a guess made BEFORE
+    // learning — wrong ones are engagement, not struggle), or 'selfExplain'
+    // (the student's own-words explanation, self-marked).
+    kind?: 'quiz' | 'predict' | 'selfExplain';
   }>;
   boards: Array<{ title: string; subject: string }>;
   course: {

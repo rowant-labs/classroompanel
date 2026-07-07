@@ -127,6 +127,37 @@ export const quizBlockSchema = z.object({
   path: ['answerIndex'],
 });
 
+// Commit-before-reveal do-block: the student stakes a guess BEFORE the board
+// explains, which is what turns reading into doing. Wrong predictions are
+// pedagogically good (they prime the learning), so they are recorded as
+// evidence but never graded against mastery. Field order matters for
+// streaming: "reveal" arrives last, so the client only shows the block once
+// it can honor a committed answer.
+export const predictBlockSchema = z.object({
+  id: z.string(),
+  type: z.literal('predict'),
+  setup: z.string(),
+  question: z.string(),
+  choices: z.array(z.string()).min(2).max(4),
+  answerIndex: z.number().int().min(0),
+  reveal: z.string(),
+}).refine((block) => block.answerIndex < block.choices.length, {
+  message: 'answerIndex must point to an existing choice',
+  path: ['answerIndex'],
+});
+
+// Say-it-back do-block: the student explains the core idea in their own words,
+// then compares against the key points and an exemplar and marks themselves.
+// Self-marked work never gates mastery — the quiz does the grading. "exemplar"
+// streams last so the block appears only when its reveal side is complete.
+export const selfExplainBlockSchema = z.object({
+  id: z.string(),
+  type: z.literal('selfExplain'),
+  prompt: z.string(),
+  keyPoints: z.array(z.string()).min(2).max(4),
+  exemplar: z.string(),
+});
+
 export const lessonBlockSchema = z.discriminatedUnion('type', [
   explanationBlockSchema,
   graphBlockSchema,
@@ -138,6 +169,8 @@ export const lessonBlockSchema = z.discriminatedUnion('type', [
   stepsBlockSchema,
   imageBlockSchema,
   quizBlockSchema,
+  predictBlockSchema,
+  selfExplainBlockSchema,
 ]);
 
 export const lessonSchema = z.object({
@@ -191,6 +224,8 @@ export const lessonStreamSchema = z.object({
       lookFor: z.array(z.string()).min(1).max(4),
     }),
     quizBlockSchema,
+    predictBlockSchema,
+    selfExplainBlockSchema,
   ])).min(3).max(8),
 });
 
@@ -211,6 +246,15 @@ export const derivativeLesson: Lesson = {
   subject: 'Calculus',
   objective: 'Help a student see that a derivative is the slope of a curve at a single point.',
   blocks: [
+    {
+      id: 'predict',
+      type: 'predict',
+      setup: 'The curve y = x² starts flat near zero and climbs away to the right.',
+      question: 'Where is the curve steeper — and what would a speedometer for steepness read there?',
+      choices: ['Steeper near x = 1', 'Steeper near x = 3', 'Same steepness everywhere'],
+      answerIndex: 1,
+      reveal: 'Near x = 3 the curve climbs much faster. Steepness changes from point to point — and the derivative is exactly that steepness, read at one point.',
+    },
     {
       id: 'intro',
       type: 'explanation',
@@ -262,6 +306,17 @@ export const derivativeLesson: Lesson = {
         'Measure the slope of that line.',
         'That slope is the derivative at that point.',
       ],
+    },
+    {
+      id: 'say-it-back',
+      type: 'selfExplain',
+      prompt: 'Explain in your own words what a derivative tells you about a curve at one point.',
+      keyPoints: [
+        'It is the slope of the line that just touches the curve there',
+        'It measures how fast things are changing at that exact spot',
+        'It belongs to one instant, not a whole interval',
+      ],
+      exemplar: 'A derivative is the steepness of the curve right at one spot — like a speedometer reading for that exact instant instead of an average over the whole trip.',
     },
     {
       id: 'quiz',

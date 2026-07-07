@@ -6,15 +6,43 @@ import type { LessonBlock } from '@/lib/lesson-schema';
 import type { LessonView } from '@/lib/lesson-view';
 import { compileExpression, numericDerivative, sampleCurve, autoRangeY } from '@/lib/expression';
 
+// Per-do-block interaction state, owned by the workspace so record-keeping
+// stays in one place and board switches reset it like the quiz selection.
+export type DoBlockState = {
+  choice?: number;
+  text?: string;
+  revealed?: boolean;
+  selfMark?: 'covered' | 'missed';
+};
+
 type LessonRendererProps = {
   lesson: LessonView;
   selectedAnswer?: number | null;
   onSelectAnswer?: (index: number) => void;
   onReteach?: (index: number) => void;
+  doStates?: Record<string, DoBlockState>;
+  onPredictCommit?: (block: PredictBlock, choice: number) => void;
+  onSelfExplainReveal?: (block: SelfExplainBlock, text: string) => void;
+  onSelfExplainMark?: (block: SelfExplainBlock, covered: boolean) => void;
+  // Identity of the board VIEW (not the lesson — model-chosen lesson ids are
+  // only unique within a lesson, so consecutive boards can collide). Local
+  // do-block state like the self-explain draft is keyed on this.
+  boardKey?: string;
   isDrawing?: boolean;
 };
 
-export function LessonRenderer({ lesson, selectedAnswer = null, onSelectAnswer, onReteach, isDrawing = false }: LessonRendererProps) {
+export function LessonRenderer({
+  lesson,
+  selectedAnswer = null,
+  onSelectAnswer,
+  onReteach,
+  doStates = {},
+  onPredictCommit,
+  onSelfExplainReveal,
+  onSelfExplainMark,
+  boardKey,
+  isDrawing = false,
+}: LessonRendererProps) {
   const explanation = lesson.blocks.find((block) => block.type === 'explanation');
   const graph = lesson.blocks.find((block) => block.type === 'graph');
   const diagram = lesson.blocks.find((block) => block.type === 'diagram');
@@ -25,6 +53,8 @@ export function LessonRenderer({ lesson, selectedAnswer = null, onSelectAnswer, 
   const image = lesson.blocks.find((block) => block.type === 'image');
   const steps = lesson.blocks.find((block) => block.type === 'steps');
   const quiz = lesson.blocks.find((block) => block.type === 'quiz');
+  const predict = lesson.blocks.find((block) => block.type === 'predict');
+  const selfExplain = lesson.blocks.find((block) => block.type === 'selfExplain');
 
   // Which block owns the big visual slot; everything else folds into the
   // bottom row so a lesson with several visuals still reads as one board.
@@ -50,6 +80,15 @@ export function LessonRenderer({ lesson, selectedAnswer = null, onSelectAnswer, 
             <h1>{lesson.title}</h1>
             {lesson.objective && <p>{lesson.objective}</p>}
           </header>
+
+          {predict && predict.type === 'predict' && (
+            <PredictPanel
+              block={predict}
+              state={doStates[predict.id]}
+              onCommit={onPredictCommit}
+              isDrawing={isDrawing}
+            />
+          )}
 
           <div className="board-workspace">
             <section className="chalk-narration chalk-reveal delay-1">
@@ -131,6 +170,17 @@ export function LessonRenderer({ lesson, selectedAnswer = null, onSelectAnswer, 
               </section>
             )}
 
+            {selfExplain && selfExplain.type === 'selfExplain' && (
+              <SelfExplainPanel
+                key={`${boardKey ?? lesson.id}:${selfExplain.id}`}
+                block={selfExplain}
+                state={doStates[selfExplain.id]}
+                onReveal={onSelfExplainReveal}
+                onMark={onSelfExplainMark}
+                isDrawing={isDrawing}
+              />
+            )}
+
             {quiz && quiz.type === 'quiz' && (
               <section className="chalk-quiz chalk-reveal delay-4">
                 <div>
@@ -184,11 +234,146 @@ export function LessonRenderer({ lesson, selectedAnswer = null, onSelectAnswer, 
 
 type BoardMark = Extract<LessonBlock, { type: 'sketch' }>['marks'][number];
 type ImageBlock = Extract<LessonBlock, { type: 'image' }>;
+export type PredictBlock = Extract<LessonBlock, { type: 'predict' }>;
+export type SelfExplainBlock = Extract<LessonBlock, { type: 'selfExplain' }>;
 type SketchBlock = Extract<LessonBlock, { type: 'sketch' }>;
 type SimulationBlock = Extract<LessonBlock, { type: 'simulation' }>;
 type FreeBodyBlock = Extract<LessonBlock, { type: 'freeBody' }>;
 type EquationBlock = Extract<LessonBlock, { type: 'equation' }>;
 type GraphBlock = Extract<LessonBlock, { type: 'graph' }>;
+
+// ---------------------------------------------------------------------------
+// Do-blocks: predict (commit before the reveal) and selfExplain (say it back).
+// Interaction state lives in the workspace via doStates/callbacks so attempts
+// land in the learner record; only the self-explain draft is local.
+// ---------------------------------------------------------------------------
+
+function PredictPanel({
+  block,
+  state,
+  onCommit,
+  isDrawing,
+}: {
+  block: PredictBlock;
+  state?: DoBlockState;
+  onCommit?: (block: PredictBlock, choice: number) => void;
+  isDrawing: boolean;
+}) {
+  const committed = state?.choice !== undefined;
+  const calledIt = committed && state?.choice === block.answerIndex;
+  return (
+    <section className={`chalk-predict chalk-reveal delay-1 ${committed ? 'committed' : ''}`}>
+      <div>
+        <span className="chalk-kicker">Predict first</span>
+        <p className="predict-setup">{block.setup}</p>
+        <h2>{block.question}</h2>
+      </div>
+      <div className="board-choices">
+        {block.choices.map((choice, index) => {
+          const isSelected = committed && state?.choice === index;
+          const isCorrect = index === block.answerIndex;
+          return (
+            <button
+              type="button"
+              className={`board-choice ${isSelected ? 'selected' : ''} ${committed && isCorrect ? 'correct' : ''}`}
+              key={choice}
+              onClick={() => onCommit?.(block, index)}
+              disabled={committed || isDrawing}
+            >
+              <span>{String.fromCharCode(65 + index)}</span>
+              {choice}
+            </button>
+          );
+        })}
+      </div>
+      <p className="board-response">
+        {!committed
+          ? 'Commit to a guess before reading on — wrong guesses teach best.'
+          : `${calledIt ? 'You called it! ' : 'Not what you guessed — even better: '}${block.reveal}`}
+      </p>
+    </section>
+  );
+}
+
+function SelfExplainPanel({
+  block,
+  state,
+  onReveal,
+  onMark,
+  isDrawing,
+}: {
+  block: SelfExplainBlock;
+  state?: DoBlockState;
+  onReveal?: (block: SelfExplainBlock, text: string) => void;
+  onMark?: (block: SelfExplainBlock, covered: boolean) => void;
+  isDrawing: boolean;
+}) {
+  const [draft, setDraft] = useState('');
+  const revealed = state?.revealed === true;
+  const marked = state?.selfMark;
+  const ready = draft.trim().length >= 20;
+
+  return (
+    <section className="chalk-selfexplain chalk-reveal delay-4">
+      <div>
+        <span className="chalk-kicker">Say it back</span>
+        <h2>{block.prompt}</h2>
+      </div>
+      {!revealed ? (
+        <>
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={3}
+            placeholder="Explain it in your own words, from memory…"
+            aria-label={block.prompt}
+            disabled={isDrawing}
+          />
+          <div className="selfexplain-actions">
+            <button
+              type="button"
+              className="reteach-button"
+              onClick={() => onReveal?.(block, draft.trim())}
+              disabled={!ready || isDrawing}
+            >
+              Compare with the key ideas
+            </button>
+            {!ready && <small>Write a sentence or two first — saying it is the practice.</small>}
+          </div>
+        </>
+      ) : (
+        <>
+          {state?.text && <blockquote className="selfexplain-yours">“{state.text}”</blockquote>}
+          <div className="selfexplain-keypoints">
+            <span className="chalk-kicker">A good answer hits these</span>
+            <ul>
+              {block.keyPoints.map((point) => (
+                <li key={point}>{point}</li>
+              ))}
+            </ul>
+            <p className="selfexplain-exemplar">One way to say it: {block.exemplar}</p>
+          </div>
+          {!marked ? (
+            <div className="selfexplain-actions">
+              <button type="button" className="reteach-button" onClick={() => onMark?.(block, true)}>
+                I covered these
+              </button>
+              <button type="button" className="reteach-button" onClick={() => onMark?.(block, false)}>
+                I missed some
+              </button>
+            </div>
+          ) : (
+            <p className="board-response">
+              {marked === 'covered'
+                ? 'Nice — explaining it in your own words is what makes it stick.'
+                : 'Good honesty — spotting the gap is how it closes. The quick check below will help.'}
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Live graph: plots the model's actual expression and lets the student drag

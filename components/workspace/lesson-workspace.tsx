@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { experimental_useObject as useObject } from '@ai-sdk/react';
-import { LessonRenderer } from '@/components/lesson-renderer';
+import { LessonRenderer, type DoBlockState, type PredictBlock, type SelfExplainBlock } from '@/components/lesson-renderer';
 import { lessonSchema, type Lesson } from '@/lib/lesson-schema';
 import { toLessonView, type LessonView } from '@/lib/lesson-view';
-import type { Course, CourseLesson, CourseUnit } from '@/lib/course-schema';
+import { courseSchema, type Course, type CourseLesson, type CourseUnit } from '@/lib/course-schema';
 import type { CounselorReport } from '@/lib/counselor-schema';
 import type { LessonContext } from '@/lib/tutor-prompt';
 import {
@@ -13,14 +13,14 @@ import {
   conceptForCourseLesson,
   conceptKeyForCourseLesson,
   conceptKeyForTopic,
-  courseFrontier,
   createLearnerRecord,
   dueConcepts,
-  flatLessonIndex,
+  isLessonLocked,
   masteryOf,
   migrateFromLegacySession,
   parseLearnerRecord,
   recordBoardDrawn,
+  recordPracticeEvent,
   recordQuizAttempt,
   serializeLearnerRecord,
   summarizeMastery,
@@ -31,7 +31,18 @@ import {
 } from '@/lib/learner-record';
 
 type ChatMessage = { id: string; role: 'student' | 'tutor'; text: string };
-type BoardRecord = { id: string; topic: string; lesson: Lesson; model?: string; courseLessonId?: string; conceptKey?: string };
+type BoardRecord = {
+  id: string;
+  topic: string;
+  lesson: Lesson;
+  model?: string;
+  courseLessonId?: string;
+  conceptKey?: string;
+  // Set once the board's quiz is answered. Revisiting the board shows the
+  // answer instead of offering the (now revealed) question again — re-answering
+  // a question you've seen graded isn't retrieval, it's streak farming.
+  answered?: { choice: number; at: string };
+};
 
 type QuizAttempt = {
   id: string;
@@ -41,6 +52,10 @@ type QuizAttempt = {
   question: string;
   chosen: string;
   correct: boolean;
+  // What kind of doing this was; absent means 'quiz' (older saved sessions).
+  // Predictions and self-explanations are practice — the counselor is told to
+  // read wrong ones as engagement, not struggle.
+  kind?: 'quiz' | 'predict' | 'selfExplain';
   courseLessonId?: string;
 };
 
@@ -73,6 +88,10 @@ const STORAGE_KEY = 'classroompanel.session.v2';
 // The learner record lives under its own key: it outlives sessions ("New
 // session" never touches it) and is the unit of export/import.
 const RECORD_KEY = 'classroompanel.record.v1';
+// Where a stored record we CANNOT read (future version, corruption) is moved,
+// untouched, instead of being overwritten. Losing a record because we merely
+// failed to parse it would break the product's core promise.
+const RECORD_QUARANTINE_KEY = 'classroompanel.record.unreadable';
 const MAX_BOARDS = 16;
 const MAX_ATTEMPTS = 40;
 // Auto-refresh the counselor once this many new events (attempts or boards)
@@ -102,6 +121,10 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   const [record, setRecord] = useState<LearnerRecord | null>(null);
   const [confirmErase, setConfirmErase] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  // Interaction state for predict/selfExplain blocks on the ACTIVE board view,
+  // keyed by block id. Reset alongside selectedAnswer on new boards and board
+  // switches — revisiting a board offers the do-blocks fresh, like the quiz.
+  const [doStates, setDoStates] = useState<Record<string, DoBlockState>>({});
   const [composerText, setComposerText] = useState('');
   const [sideTab, setSideTab] = useState<'tutor' | 'course' | 'progress' | 'counselor'>('tutor');
   const [statusNote, setStatusNote] = useState('Ask anything. The board draws itself.');
@@ -115,6 +138,10 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
 
   // What the in-flight generation is about (topic shown in history, course bookkeeping)
   const pendingRef = useRef<{ topic: string; context: LessonContext; courseLessonId?: string; conceptKey?: string } | null>(null);
+  // Legacy done-on-draw flags kept in session saves ONLY until the migrated
+  // record is safely persisted — so a failed record write can't strand the
+  // migration source.
+  const legacyDoneRef = useRef<Record<string, boolean> | undefined>(undefined);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   // Counselor fetch guards: never two requests in flight, and don't auto-retry
@@ -133,6 +160,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
           setMessages(saved.messages ?? []);
           setBoards(saved.boards);
           setActiveBoardIndex(saved.boards.length - 1);
+          setSelectedAnswer(saved.boards[saved.boards.length - 1]?.answered?.choice ?? null);
           setCourse(saved.course ?? null);
           setAttempts(saved.attempts ?? []);
           setCounselor(saved.counselor ?? null);
@@ -147,11 +175,13 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     // The learner record loads from its own key; a missing record gets seeded
     // by migrating whatever the legacy session blob knew (one-time upgrade).
     let loaded: LearnerRecord | null = null;
+    let unreadable: string | null = null;
     try {
       const rawRecord = window.localStorage.getItem(RECORD_KEY);
       if (rawRecord) {
         const parsed = parseLearnerRecord(rawRecord);
         if (parsed.ok) loaded = parsed.record;
+        else unreadable = rawRecord;
       }
     } catch {
       loaded = null;
@@ -160,6 +190,20 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
       loaded = saved
         ? migrateFromLegacySession({ course: saved.course, done: saved.done, attempts: saved.attempts }, new Date())
         : createLearnerRecord(new Date());
+    }
+    if (unreadable) {
+      // A record we can't read (newer version, corruption) is moved aside
+      // untouched — never overwritten. The save effect below would otherwise
+      // destroy it the moment a fresh record hydrates.
+      try { window.localStorage.setItem(RECORD_QUARANTINE_KEY, unreadable); } catch { /* storage full — the original stays under RECORD_KEY until a save succeeds */ }
+      setStatusNote('Your saved learning record was written by a different version. It was backed up untouched; starting fresh here.');
+    }
+    // Persist the loaded record NOW: the session save effect strips the legacy
+    // done flags, so the record must be on disk first (or the flags kept).
+    try {
+      window.localStorage.setItem(RECORD_KEY, JSON.stringify(loaded));
+    } catch {
+      legacyDoneRef.current = saved?.done;
     }
     setRecord(loaded);
     setHydrated(true);
@@ -172,6 +216,8 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
         messages: messages.slice(-60),
         boards: boards.slice(-MAX_BOARDS),
         course,
+        // Carried only while a migrated record has not yet been written to disk.
+        done: legacyDoneRef.current,
         attempts: attempts.slice(-MAX_ATTEMPTS),
         counselor,
         totalAttempts,
@@ -187,6 +233,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     if (!hydrated || !record) return;
     try {
       window.localStorage.setItem(RECORD_KEY, JSON.stringify(record));
+      legacyDoneRef.current = undefined; // record is on disk — legacy flags no longer needed
     } catch {
       // storage full — record just won't persist this round
     }
@@ -233,6 +280,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     }]);
     setTotalBoards((count) => count + 1);
     setSelectedAnswer(null);
+    setDoStates({});
   }, [course]);
 
   const fallbackGenerate = useCallback(async (topic: string, context: LessonContext) => {
@@ -286,6 +334,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     const spoken = options?.spokenAs ?? request;
     setMessages((prev) => [...prev, { id: makeId('msg'), role: 'student', text: spoken }]);
     setSelectedAnswer(null);
+    setDoStates({});
     setStatusNote('The tutor is drawing…');
     pendingRef.current = { topic: spoken, context, courseLessonId: options?.courseLessonId, conceptKey: options?.conceptKey };
     submit({ request, context });
@@ -320,8 +369,8 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     const boardsAtReport = totalBoards;
     try {
       const snapshot = {
-        attempts: attempts.slice(-25).map(({ at, boardTitle, subject, question, chosen, correct }) => (
-          { at, boardTitle, subject, question, chosen, correct }
+        attempts: attempts.slice(-25).map(({ at, boardTitle, subject, question, chosen, correct, kind }) => (
+          { at, boardTitle, subject, question, chosen, correct, kind }
         )),
         boards: boards.slice(-MAX_BOARDS).map((board) => ({ title: board.lesson.title, subject: board.lesson.subject })),
         course: course ? {
@@ -427,8 +476,66 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
           correct,
         }, new Date());
       });
+      // Mark the board answered so revisits show the result instead of
+      // re-grading a question whose answer was just revealed.
+      if (activeBoard) {
+        setBoards((prev) => prev.map((board) => (
+          board.id === activeBoard.id ? { ...board, answered: { choice: index, at: attempt.at } } : board
+        )));
+      }
     }
     setSelectedAnswer(index);
+  }
+
+  // ---- practice do-blocks (predict / say-it-back) ----------------------------
+  // Both land in the record as PRACTICE evidence — they never move mastery.
+  // Wrong predictions are the pedagogy working, and self-marked explanations
+  // must not gate progression; the quiz stays the only graded act.
+
+  function recordPractice(kind: 'predict' | 'selfExplain', prompt: string, response: string, correct: boolean) {
+    if (!displayedLesson) return;
+    const attempt: QuizAttempt = {
+      id: makeId('attempt'),
+      at: new Date().toISOString(),
+      boardTitle: displayedLesson.title,
+      subject: displayedLesson.subject,
+      question: prompt,
+      chosen: response,
+      correct,
+      kind,
+      courseLessonId: activeBoard?.courseLessonId,
+    };
+    setAttempts((prev) => [...prev, attempt].slice(-MAX_ATTEMPTS));
+    setTotalAttempts((count) => count + 1);
+    setRecord((prev) => {
+      if (!prev) return prev;
+      const ref = boardConceptRef(prev, course, activeBoard?.conceptKey, activeBoard?.courseLessonId, displayedLesson);
+      return recordPracticeEvent(prev, ref, { id: attempt.id, kind, prompt, response, correct }, new Date());
+    });
+  }
+
+  function handlePredictCommit(block: PredictBlock, choice: number) {
+    // Same streaming guard as the quiz: mid-stream, board bookkeeping still
+    // points at the PREVIOUS board, and doStates get wiped on commit anyway.
+    if (isStreaming) return;
+    if (doStates[block.id]?.choice !== undefined) return;
+    setDoStates((prev) => ({ ...prev, [block.id]: { ...prev[block.id], choice } }));
+    recordPractice('predict', block.question, block.choices[choice] ?? 'unknown', choice === block.answerIndex);
+  }
+
+  function handleSelfExplainReveal(block: SelfExplainBlock, text: string) {
+    if (isStreaming || !text) return;
+    // The record caps free text: the learner's words are theirs, but the
+    // portable file shouldn't balloon on one long paragraph.
+    setDoStates((prev) => ({ ...prev, [block.id]: { ...prev[block.id], text: text.slice(0, 500), revealed: true } }));
+  }
+
+  function handleSelfExplainMark(block: SelfExplainBlock, covered: boolean) {
+    if (isStreaming) return;
+    const state = doStates[block.id];
+    if (!state?.revealed || state.selfMark) return;
+    setDoStates((prev) => ({ ...prev, [block.id]: { ...prev[block.id], selfMark: covered ? 'covered' : 'missed' } }));
+    recordPractice('selfExplain', block.prompt, state.text ?? '', covered);
   }
 
   function handleReteach(answerIndex: number) {
@@ -568,7 +675,17 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
       const parsed = parseLearnerRecord(await file.text());
       if (parsed.ok) {
         setRecord(parsed.record);
-        setStatusNote('Learning record imported. Welcome back.');
+        // Records embed their course outlines precisely so an import can
+        // rebuild the rail — without this, course concepts would orphan
+        // (re-uploading the same book mints new model-chosen ids).
+        const embedded = parsed.record.courses[parsed.record.courses.length - 1];
+        const restoredCourse = embedded ? courseSchema.safeParse(embedded.course) : null;
+        if (restoredCourse?.success) {
+          setCourse(restoredCourse.data);
+          setStatusNote(`Learning record imported — “${restoredCourse.data.title}” restored with it. Welcome back.`);
+        } else {
+          setStatusNote('Learning record imported. Welcome back.');
+        }
       } else {
         setStatusNote(`Couldn’t import that file: ${parsed.error}`);
       }
@@ -582,7 +699,11 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
       setConfirmErase(true);
       return;
     }
-    setRecord(createLearnerRecord(new Date()));
+    // A loaded course stays embedded so the next export remains self-contained
+    // (concepts reference courseIds; the format promises the outline rides along).
+    const now = new Date();
+    const fresh = course ? addCourseToRecord(createLearnerRecord(now), course, now) : createLearnerRecord(now);
+    setRecord(fresh);
     setConfirmErase(false);
     setStatusNote('Learning record erased. Fresh start.');
   }
@@ -593,6 +714,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     setActiveBoardIndex(0);
     setCourse(null);
     setSelectedAnswer(null);
+    setDoStates({});
     setAttempts([]);
     setCounselor(null);
     setTotalAttempts(0);
@@ -607,7 +729,6 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
 
   const courseLessonCount = course ? countLessons(course) : 0;
   const courseDoneCount = course && record ? courseProficientCount(record, course) : 0;
-  const frontier = course && record ? courseFrontier(record, course) : 0;
   const reviewDue = record ? dueConcepts(record, new Date()) : [];
   const masterySummary = record ? summarizeMastery(record, new Date()) : null;
   const trackedConcepts = record
@@ -721,10 +842,10 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
                       <ul>
                         {unit.lessons.map((lesson) => {
                           const level = masteryOf(record ? conceptForCourseLesson(record, course.id, lesson.id) : undefined);
-                          // Mastery gating: everything up to the frontier (the
-                          // first not-yet-proficient lesson) is open — earlier
-                          // lessons stay open for review; later ones wait.
-                          const locked = flatLessonIndex(course, lesson.id) > frontier;
+                          // Mastery gating: lessons past the frontier wait —
+                          // unless already earned (a regressed early concept
+                          // never re-locks content the learner demonstrated).
+                          const locked = record ? isLessonLocked(record, course, lesson.id) : false;
                           return (
                             <li key={lesson.id}>
                               <button
@@ -933,7 +1054,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
                   type="button"
                   key={board.id}
                   className={index === activeBoardIndex && !isStreaming ? 'timeline-chip active' : 'timeline-chip'}
-                  onClick={() => { setActiveBoardIndex(index); setSelectedAnswer(null); }}
+                  onClick={() => { setActiveBoardIndex(index); setSelectedAnswer(board.answered?.choice ?? null); setDoStates({}); }}
                 >
                   {index + 1}. {board.lesson.title}
                 </button>
@@ -947,6 +1068,11 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
               selectedAnswer={selectedAnswer}
               onSelectAnswer={handleSelectAnswer}
               onReteach={handleReteach}
+              doStates={doStates}
+              onPredictCommit={handlePredictCommit}
+              onSelfExplainReveal={handleSelfExplainReveal}
+              onSelfExplainMark={handleSelfExplainMark}
+              boardKey={isStreaming ? 'streaming' : activeBoard?.id ?? 'initial'}
               isDrawing={isDrawing}
             />
           )}

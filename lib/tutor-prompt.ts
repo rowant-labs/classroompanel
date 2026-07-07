@@ -61,8 +61,21 @@ How to use the board:
   "alt": describe the picture for a student who cannot see it. "caption" ties the picture to
   the lesson's idea. "lookFor": 1-4 short phrases naming what to notice in the picture.
 - steps: a short "how to think it through" list.
+
+Do-blocks — the student must DO something on every board, not just read:
 - quiz: ALWAYS end with exactly one quiz block that checks the lesson's core idea. Plausible
   distractors, and an explanation that reteaches rather than just restates.
+- predict: when the board introduces a phenomenon, rule, or behavior the student has NOT seen
+  yet, open with a predict block (put it FIRST in blocks). "setup" paints the scene in 1-2
+  sentences, "question" asks what will happen, 2-4 choices, "reveal" says what actually happens
+  and why — it stays hidden until the student commits, so make it carry the payoff. Wrong
+  predictions are welcome; never scold. Write the explanation block to deepen the WHY without
+  flatly restating the reveal's answer in its first line.
+- selfExplain: on concept-heavy boards and review boards, add one selfExplain block just before
+  the quiz. "prompt" asks the student to explain the core idea in their own words (1-3
+  sentences), "keyPoints" lists 2-4 short ideas a good answer hits, "exemplar" is one strong
+  example answer in student-friendly words.
+- At most one predict and one selfExplain per board.
 
 Writing rules for board text (every text field):
 - Plain text only — no markdown, no ** or # or backticks.
@@ -71,7 +84,7 @@ Writing rules for board text (every text field):
 Adaptive teaching:
 - If the student answered the last check correctly, go one level deeper or raise difficulty slightly.
 - If they missed it, redraw the SAME idea a different way — new analogy, new visual — not the same board again.
-- Keep ids short-kebab-case and unique within the lesson. 4-7 blocks total.`;
+- Keep ids short-kebab-case and unique within the lesson. 4-8 blocks total.`;
 
 export function buildLessonPrompt(request: string, context: LessonContext = {}): string {
   const parts: string[] = [];
@@ -97,9 +110,10 @@ export function buildLessonPrompt(request: string, context: LessonContext = {}):
       `SPACED REVIEW board: the student learned "${r.conceptTitle}" earlier` +
       (r.daysSinceLastSeen !== undefined ? ` (about ${r.daysSinceLastSeen} day${r.daysSinceLastSeen === 1 ? '' : 's'} ago)` : '') +
       (r.objective ? `. Original objective: ${r.objective}` : '') +
-      `. This board must make the student RETRIEVE before you re-explain: open with a short recall
-challenge (steps block asking them to work it from memory, or a visual with a 'predict what happens'
-prompt) and keep any re-explanation brief and AFTER the recall work. Do not reteach from scratch` +
+      `. This board must make the student RETRIEVE before you re-explain: open with a predict block
+(a 'what happens here?' they must commit to from memory) or a selfExplain block asking them to
+reconstruct the idea in their own words, and keep any re-explanation brief and AFTER the recall
+work. Do not reteach from scratch` +
       (r.priorStruggle ? '. They struggled with this before, so make the recall on-ramp gentle and concrete' : '') +
       '. The quiz should test the core idea in a fresh disguise — new numbers, new example, same concept.',
     );

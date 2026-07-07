@@ -84,14 +84,24 @@ A concept is **due** when `dueAt <= now`. The due queue is ordered oldest-due fi
 ## Attempts
 
 ```jsonc
-{ "id": "…", "at": "…", "conceptId": "lesson:course-1:l1", "question": "…", "chosen": "…", "correct": true }
+{ "id": "…", "at": "…", "conceptId": "lesson:course-1:l1", "kind": "quiz", "question": "…", "chosen": "…", "correct": true }
 ```
 
 The attempts array is a rolling evidence window (cap 500) for counselors, parents, and future analytics. Concept counters are the durable tally; truncating attempts never changes a mastery level.
 
+`kind` (optional; added within version 1, absent means `"quiz"`) says what kind of doing the attempt was:
+
+| kind | What it is | Effect on mastery |
+|---|---|---|
+| `quiz` | A graded quick-check answer | Updates counters, streak, stage, `dueAt` (via `recordQuizAttempt`) |
+| `predict` | A prediction committed *before* the lesson explained — `correct` records whether it matched, but wrong predictions are the pedagogy working | **None** — evidence only (via `recordPracticeEvent`; also touches `lastAttemptAt`) |
+| `selfExplain` | The student's own-words explanation (`chosen` holds their text, capped) with `correct` = their self-mark | **None** — self-marked work never gates progression |
+
+This is the format's honesty rule: only objectively graded retrieval moves mastery. Practice must be safe — a learner who predicts boldly and self-reports gaps is doing exactly what we want, and the record never punishes it.
+
 ## Course gating (derived)
 
-The course rail unlocks lessons in order. The **frontier** is the first lesson (units flattened, in order) whose mastery is below `proficient`; every lesson up to and including the frontier is open (earlier ones stay open for review), everything past it is locked. Drawing a board never advances the frontier — only a correct quiz answer does.
+The course rail unlocks lessons in order. The **frontier** is the first lesson (units flattened, in order) whose mastery is below `proficient`; every lesson up to and including the frontier is open (earlier ones stay open for review). A lesson past the frontier is locked **unless the learner already earned it**: a missed spaced review can regress an early concept and pull the frontier back, but lessons already at `proficient` or `mastered` never re-lock (`isLessonLocked()`). Drawing a board never advances the frontier — only a correct quiz answer does.
 
 ## Compatibility rules
 

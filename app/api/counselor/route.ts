@@ -50,6 +50,9 @@ function sanitizeSnapshot(raw: unknown): CounselorSnapshot {
     .slice(-MAX_ATTEMPTS)
     .map((entry) => {
       const attempt = (entry && typeof entry === 'object' ? entry : {}) as Record<string, unknown>;
+      const kind = attempt.kind === 'predict' || attempt.kind === 'selfExplain' || attempt.kind === 'quiz'
+        ? (attempt.kind as 'quiz' | 'predict' | 'selfExplain')
+        : undefined;
       return {
         at: str(attempt.at),
         boardTitle: str(attempt.boardTitle, 'a board'),
@@ -57,6 +60,7 @@ function sanitizeSnapshot(raw: unknown): CounselorSnapshot {
         question: str(attempt.question),
         chosen: str(attempt.chosen),
         correct: attempt.correct === true,
+        kind,
       };
     });
 
@@ -108,14 +112,26 @@ function describeSnapshot(snapshot: CounselorSnapshot): string {
   const lines: string[] = ['Session snapshot for your check-in:'];
 
   if (snapshot.attempts.length > 0) {
-    lines.push('', 'Quiz attempts (oldest first):');
+    lines.push(
+      '',
+      'Attempts (oldest first). Kinds: quiz = graded check; predict = a guess made BEFORE learning,',
+      'so wrong predictions are healthy engagement, never struggle; say-it-back = the student',
+      'explaining in their own words, self-marked (covered / missed some).',
+    );
     for (const attempt of snapshot.attempts) {
+      const kind = attempt.kind ?? 'quiz';
+      const outcome = kind === 'predict'
+        ? (attempt.correct ? 'called it' : 'guessed differently')
+        : kind === 'selfExplain'
+          ? (attempt.correct ? 'self-marked: covered the key ideas' : 'self-marked: missed some')
+          : (attempt.correct ? 'CORRECT' : 'WRONG');
+      const label = kind === 'selfExplain' ? 'say-it-back' : kind;
       lines.push(
-        `- [${attempt.subject} / ${attempt.boardTitle}] Q: ${attempt.question} | answered: ${attempt.chosen} | ${attempt.correct ? 'CORRECT' : 'WRONG'}`,
+        `- [${label}] [${attempt.subject} / ${attempt.boardTitle}] Q: ${attempt.question} | answered: ${attempt.chosen} | ${outcome}`,
       );
     }
   } else {
-    lines.push('', 'Quiz attempts: none yet.');
+    lines.push('', 'Attempts: none yet.');
   }
 
   if (snapshot.boards.length > 0) {
