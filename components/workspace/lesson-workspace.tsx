@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { experimental_useObject as useObject } from '@ai-sdk/react';
 import { LessonRenderer, type DoBlockState, type PredictBlock, type SelfExplainBlock } from '@/components/lesson-renderer';
 import { lessonSchema, type Lesson } from '@/lib/lesson-schema';
@@ -731,10 +731,22 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   const courseDoneCount = course && record ? courseProficientCount(record, course) : 0;
   const reviewDue = record ? dueConcepts(record, new Date()) : [];
   const masterySummary = record ? summarizeMastery(record, new Date()) : null;
+  // The mastery map reads as a ladder: crown achievements first, then the
+  // climb — recency breaks ties within a level.
   const trackedConcepts = record
-    ? Object.values(record.concepts).sort((a, b) =>
-        Date.parse(b.lastAttemptAt ?? b.introducedAt) - Date.parse(a.lastAttemptAt ?? a.introducedAt))
+    ? Object.values(record.concepts).sort((a, b) => {
+        const rank = LEVEL_RANK[masteryOf(a)] - LEVEL_RANK[masteryOf(b)];
+        if (rank !== 0) return rank;
+        return Date.parse(b.lastAttemptAt ?? b.introducedAt) - Date.parse(a.lastAttemptAt ?? a.introducedAt);
+      })
     : [];
+  // The first unlocked, not-yet-learned lesson — the one thing to tap next.
+  const upNextLessonId = course && record
+    ? course.units.flatMap((unit) => unit.lessons).find((lesson) => {
+        const level = masteryOf(conceptForCourseLesson(record, course.id, lesson.id));
+        return level !== 'proficient' && level !== 'mastered' && !isLessonLocked(record, course, lesson.id);
+      })?.id ?? null
+    : null;
 
   return (
     <main className="terminal-page">
@@ -744,7 +756,14 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
           <span className="terminal-status">{statusNote}</span>
         </div>
         <div className="terminal-actions">
-          {course && <span className="course-progress-pill">{courseDoneCount}/{courseLessonCount} lessons</span>}
+          {course && (
+            <span
+              className="course-progress-pill"
+              style={{ '--pct': `${courseLessonCount > 0 ? Math.round((courseDoneCount / courseLessonCount) * 100) : 0}%` } as CSSProperties}
+            >
+              {courseDoneCount}/{courseLessonCount} lessons
+            </span>
+          )}
           <button type="button" onClick={resetSession} className="ghost-button">New session</button>
         </div>
       </header>
@@ -756,7 +775,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
               Tutor
             </button>
             <button type="button" role="tab" aria-selected={sideTab === 'course'} className={sideTab === 'course' ? 'active' : ''} onClick={() => setSideTab('course')}>
-              Course{course ? ` · ${courseDoneCount}/${courseLessonCount}` : ''}
+              Course
             </button>
             <button type="button" role="tab" aria-selected={sideTab === 'progress'} className={sideTab === 'progress' ? 'active' : ''} onClick={() => setSideTab('progress')}>
               Progress
@@ -831,61 +850,92 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
                     <span className="chalk-kicker-dark">{course.subject} · {course.gradeBand}</span>
                     <h2>{course.title}</h2>
                     <p>{course.overview}</p>
-                    <button type="button" className="ghost-button" onClick={() => setCourse(null)}>
-                      Replace curriculum
-                    </button>
+                    <div className="course-progressline">
+                      <div className="chalk-bar">
+                        <span style={{ width: `${courseLessonCount > 0 ? (courseDoneCount / courseLessonCount) * 100 : 0}%` }} />
+                      </div>
+                      <small>{courseDoneCount} of {courseLessonCount} lessons learned</small>
+                    </div>
                   </div>
-                  {course.units.map((unit) => (
-                    <section key={unit.id} className="course-unit">
-                      <h3>{unit.title}</h3>
-                      <p>{unit.summary}</p>
-                      <ul>
-                        {unit.lessons.map((lesson) => {
-                          const level = masteryOf(record ? conceptForCourseLesson(record, course.id, lesson.id) : undefined);
-                          // Mastery gating: lessons past the frontier wait —
-                          // unless already earned (a regressed early concept
-                          // never re-locks content the learner demonstrated).
-                          const locked = record ? isLessonLocked(record, course, lesson.id) : false;
-                          return (
-                            <li key={lesson.id}>
-                              <button
-                                type="button"
-                                className={`course-lesson ${level === 'mastered' ? 'mastered' : ''} ${level === 'proficient' ? 'done' : ''} ${locked ? 'locked' : ''}`.trim()}
-                                onClick={() => teachCourseLesson(unit, lesson)}
-                                disabled={isDrawing || locked}
-                                title={locked ? 'Answer the earlier checks correctly to unlock this lesson.' : undefined}
-                              >
-                                <span className="lesson-check" aria-hidden="true">{masteryGlyph(level, locked)}</span>
-                                <span className="lesson-text">
-                                  <strong>{lesson.title}</strong>
-                                  <small>{locked ? 'Unlocks after the lesson before it.' : lesson.objective}</small>
-                                </span>
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </section>
-                  ))}
+                  {course.units.map((unit) => {
+                    const unitDone = record ? unitProficientCount(record, course, unit) : 0;
+                    const flatLessons = course.units.flatMap((entry) => entry.lessons);
+                    return (
+                      <section key={unit.id} className="course-unit">
+                        <div className="unit-head">
+                          <h3>{unit.title}</h3>
+                          <span className={`unit-count ${unitDone === unit.lessons.length ? 'complete' : ''}`}>{unitDone}/{unit.lessons.length}</span>
+                        </div>
+                        <div className="chalk-bar slim">
+                          <span style={{ width: `${(unitDone / unit.lessons.length) * 100}%` }} />
+                        </div>
+                        <p>{unit.summary}</p>
+                        <ul>
+                          {unit.lessons.map((lesson) => {
+                            const level = masteryOf(record ? conceptForCourseLesson(record, course.id, lesson.id) : undefined);
+                            // Mastery gating: lessons past the frontier wait —
+                            // unless already earned (a regressed early concept
+                            // never re-locks content the learner demonstrated).
+                            const locked = record ? isLessonLocked(record, course, lesson.id) : false;
+                            const isNext = lesson.id === upNextLessonId;
+                            const prevLesson = flatLessons[flatLessons.findIndex((entry) => entry.id === lesson.id) - 1];
+                            return (
+                              <li key={lesson.id}>
+                                <button
+                                  type="button"
+                                  className={`course-lesson ${level === 'mastered' ? 'mastered' : ''} ${level === 'proficient' ? 'done' : ''} ${locked ? 'locked' : ''} ${isNext ? 'next' : ''}`.trim()}
+                                  onClick={() => teachCourseLesson(unit, lesson)}
+                                  disabled={isDrawing || locked}
+                                  title={locked ? 'Answer the earlier checks correctly to unlock this lesson.' : undefined}
+                                >
+                                  <span className="lesson-check" aria-hidden="true">{masteryGlyph(level, locked)}</span>
+                                  <span className="lesson-text">
+                                    <strong>{lesson.title}</strong>
+                                    <small>{locked ? `Unlocks after “${prevLesson?.title ?? 'the lesson before it'}”` : lesson.objective}</small>
+                                  </span>
+                                  {isNext ? (
+                                    <span className="up-next-tag">Up next</span>
+                                  ) : !locked ? (
+                                    <span className="lesson-go" aria-hidden="true">›</span>
+                                  ) : null}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </section>
+                    );
+                  })}
+                  <button type="button" className="quiet-link" onClick={() => setCourse(null)}>
+                    Replace curriculum
+                  </button>
                 </div>
               )}
             </div>
           ) : sideTab === 'progress' ? (
             <div className="progress-panel">
               <div className="progress-section">
-                <span className="chalk-kicker-dark">Due for review</span>
+                <span className="chalk-kicker-dark">
+                  Due for review{reviewDue.length > 0 && <em className="kicker-count"> · {reviewDue.length}</em>}
+                </span>
                 {reviewDue.length > 0 ? (
                   <>
                     <p className="progress-hint">
                       Answering these again after a break is what makes learning stick.
                     </p>
                     <div className="review-queue">
-                      {reviewDue.slice(0, 8).map((concept) => (
-                        <button type="button" key={concept.id} disabled={isDrawing} onClick={() => startReview(concept)}>
-                          <strong>{concept.title}</strong>
-                          <small>{masteryLabel(masteryOf(concept))} · last seen {daysAgoLabel(concept.lastAttemptAt ?? concept.introducedAt)}</small>
-                        </button>
-                      ))}
+                      {reviewDue.slice(0, 8).map((concept) => {
+                        const overdueDays = concept.dueAt ? Math.floor((Date.now() - Date.parse(concept.dueAt)) / (24 * 60 * 60 * 1000)) : 0;
+                        return (
+                          <button type="button" key={concept.id} className={overdueDays >= 3 ? 'overdue' : ''} disabled={isDrawing} onClick={() => startReview(concept)}>
+                            <span className="review-main">
+                              <strong>{concept.title}</strong>
+                              <small>{masteryLabel(masteryOf(concept))} · due {daysAgoLabel(concept.dueAt ?? concept.introducedAt)}</small>
+                            </span>
+                            <span className="review-cta" aria-hidden="true">Review ›</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </>
                 ) : (
@@ -896,22 +946,37 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
               </div>
 
               <div className="progress-section">
-                <span className="chalk-kicker-dark">Mastery</span>
+                <span className="chalk-kicker-dark">
+                  Mastery{trackedConcepts.length > 0 && <em className="kicker-count"> · {trackedConcepts.length} skills</em>}
+                </span>
                 {masterySummary && (masterySummary.mastered + masterySummary.proficient + masterySummary.learning > 0) ? (
                   <>
-                    <div className="counselor-chips">
-                      <span className="counselor-chip">★ {masterySummary.mastered} mastered</span>
-                      <span className="counselor-chip">✓ {masterySummary.proficient} learned</span>
-                      <span className="counselor-chip">· {masterySummary.learning} in progress</span>
+                    <div className="mastery-stats">
+                      <div className="stat-tile mastered">
+                        <strong>{masterySummary.mastered}</strong>
+                        <span>★ Mastered</span>
+                      </div>
+                      <div className="stat-tile learned">
+                        <strong>{masterySummary.proficient}</strong>
+                        <span>✓ Learned</span>
+                      </div>
+                      <div className="stat-tile learning">
+                        <strong>{masterySummary.learning}</strong>
+                        <span>◌ In progress</span>
+                      </div>
                     </div>
                     <ul className="mastery-list">
                       {trackedConcepts.slice(0, 30).map((concept) => {
                         const level = masteryOf(concept);
+                        const meta = conceptMeta(concept);
                         return (
                           <li key={concept.id} className="mastery-row">
-                            <span className={`level-dot ${level}`} aria-hidden="true" />
-                            <span className="mastery-title">{concept.title}</span>
-                            <span className="mastery-level">{masteryLabel(level)}</span>
+                            <span className={`level-glyph ${level}`} aria-hidden="true">{levelGlyph(level)}</span>
+                            <span className="mastery-text">
+                              <span className="mastery-title">{concept.title}</span>
+                              {meta && <small>{meta}</small>}
+                            </span>
+                            <span className={`mastery-level ${level}`}>{masteryLabel(level)}</span>
                           </li>
                         );
                       })}
@@ -930,13 +995,13 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
                   This learning record belongs to you — take it with you, bring it back, or start over. New sessions never erase it.
                 </p>
                 <div className="record-buttons">
-                  <button type="button" className="ghost-button" onClick={handleExportRecord} disabled={!record}>
+                  <button type="button" className="ghost-button primary" onClick={handleExportRecord} disabled={!record}>
                     Export
                   </button>
                   <button type="button" className="ghost-button" onClick={() => importInputRef.current?.click()}>
                     Import
                   </button>
-                  <button type="button" className={`ghost-button ${confirmErase ? 'danger' : ''}`} onClick={handleEraseRecord}>
+                  <button type="button" className={`quiet-link erase ${confirmErase ? 'danger' : ''}`} onClick={handleEraseRecord}>
                     {confirmErase ? 'Really erase?' : 'Erase record'}
                   </button>
                 </div>
@@ -972,7 +1037,10 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
               ) : (
                 <div className="counselor-report">
                   {isCounselorLoading && <p className="counselor-loading">Checking in again…</p>}
-                  <p className="counselor-checkin">{counselor.report.checkIn}</p>
+                  <div className="counselor-section">
+                    <span className="chalk-kicker-dark">Today’s check-in</span>
+                    <p className="counselor-checkin">{counselor.report.checkIn}</p>
+                  </div>
 
                   <div className="counselor-section">
                     <span className="chalk-kicker-dark">Going strong</span>
@@ -1189,6 +1257,38 @@ function masteryLabel(level: MasteryLevel): string {
   if (level === 'proficient') return 'learned';
   if (level === 'learning') return 'in progress';
   return 'new';
+}
+
+// Ladder order for the mastery map: crown achievements first.
+const LEVEL_RANK: Record<MasteryLevel, number> = { mastered: 0, proficient: 1, learning: 2, new: 3 };
+
+function levelGlyph(level: MasteryLevel): string {
+  if (level === 'mastered') return '★';
+  if (level === 'proficient') return '✓';
+  if (level === 'learning') return '◌';
+  return '·';
+}
+
+// Quiet second line for a mastery row: the learning arc, not just the label.
+function conceptMeta(concept: ConceptState): string | null {
+  const parts: string[] = [];
+  if (concept.streak >= 2) parts.push(`streak ${concept.streak}`);
+  if (concept.dueAt) {
+    const ms = Date.parse(concept.dueAt) - Date.now();
+    if (ms <= 0) parts.push('review due');
+    else if (ms < 24 * 60 * 60 * 1000) parts.push('review today');
+    else parts.push(`review in ${Math.round(ms / (24 * 60 * 60 * 1000))}d`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+function unitProficientCount(record: LearnerRecord, course: Course, unit: CourseUnit): number {
+  let count = 0;
+  for (const lesson of unit.lessons) {
+    const level = masteryOf(conceptForCourseLesson(record, course.id, lesson.id));
+    if (level === 'proficient' || level === 'mastered') count += 1;
+  }
+  return count;
 }
 
 function daysAgoLabel(iso: string): string {

@@ -1544,10 +1544,13 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   flex: 0 0 auto;
 }
 
+/* Status badge with a quiet progress fill — --pct set inline. Same 6px
+   radius as buttons so the header controls read as one family. */
 .course-progress-pill {
   padding: 6px 11px;
-  border: 1px solid rgba(188, 231, 168, .55);
-  border-radius: 999px;
+  border: 1px solid rgba(188, 231, 168, .45);
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(188, 231, 168, .22) var(--pct, 0%), rgba(188, 231, 168, .05) var(--pct, 0%));
   color: #dcffd0;
   font-size: .8rem;
   font-weight: 800;
@@ -1565,6 +1568,38 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 }
 
 .ghost-button:hover { border-color: rgba(240, 217, 141, .7); }
+
+.ghost-button.primary {
+  border-color: rgba(240, 217, 141, .6);
+  background: rgba(240, 217, 141, .12);
+  color: #f0d98d;
+}
+
+.ghost-button.primary:hover { background: rgba(240, 217, 141, .2); }
+
+/* Rare or destructive actions live as quiet text links, never at button
+   weight — a casually-placed erase button reads as careless with the record. */
+.quiet-link {
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  color: rgba(255, 248, 223, .5);
+  font-size: .8rem;
+  text-decoration: underline dotted rgba(255, 248, 223, .35);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.quiet-link:hover { color: rgba(255, 248, 223, .85); }
+
+.quiet-link.erase { margin-left: auto; }
+.quiet-link.erase:hover { color: #ffb4ab; }
+
+.quiet-link.erase.danger {
+  color: #ffb4ab;
+  text-decoration-color: rgba(255, 138, 128, .6);
+  font-weight: 800;
+}
 
 .terminal-grid {
   flex: 1;
@@ -1584,9 +1619,11 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   max-height: calc(100vh - 92px);
   position: sticky;
   top: 14px;
-  border: 1px solid rgba(248, 241, 210, .18);
+  border: 1px solid rgba(240, 217, 141, .16);
   border-radius: 10px;
-  background: rgba(15, 20, 17, .92);
+  /* The rail shares the board's material: a deep green-cast dark, not a
+     neutral admin gray — the two halves must read as one crafted object. */
+  background: linear-gradient(180deg, #131a12, #0d130d);
   box-shadow: 0 20px 70px rgba(0, 0, 0, .4);
   overflow: hidden;
 }
@@ -1594,22 +1631,27 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 .side-tabs {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  border-bottom: 1px solid rgba(248, 241, 210, .14);
+  border-bottom: 1px solid rgba(240, 217, 141, .14);
 }
 
+/* Sized so all four labels ALWAYS fit at the rail's width — a truncated tab
+   reads as broken. Never let these ellipsize. */
 .side-tabs button {
-  padding: 12px 6px;
+  padding: 12px 2px;
   border: 0;
   background: transparent;
   color: rgba(244, 238, 218, .56);
   font-weight: 900;
-  font-size: .76rem;
-  letter-spacing: .05em;
+  font-size: .68rem;
+  letter-spacing: .03em;
   text-transform: uppercase;
   cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.side-tabs button:hover:not(.active) {
+  color: #fff8df;
+  background: rgba(255, 248, 223, .04);
 }
 
 .side-tabs button.active {
@@ -1662,6 +1704,8 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 .starter-stack button:hover { border-color: rgba(240, 217, 141, .7); }
 .starter-stack button:disabled { opacity: .5; cursor: wait; }
 
+/* Bubbles are background-only: in the rail, a border means "tappable" —
+   inert content never wears one. */
 .thread-bubble {
   max-width: 92%;
   padding: 10px 13px;
@@ -1670,17 +1714,19 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   line-height: 1.45;
 }
 
+/* Conversations anchor to the composer and grow upward, like every chat. */
+.thread-scroll > .thread-bubble:first-child { margin-top: auto; }
+
 .thread-bubble.student {
   align-self: flex-end;
-  background: rgba(240, 217, 141, .16);
-  border: 1px solid rgba(240, 217, 141, .3);
+  background: rgba(240, 217, 141, .14);
   border-bottom-right-radius: 4px;
+  color: #fff8df;
 }
 
 .thread-bubble.tutor {
   align-self: flex-start;
-  background: rgba(255, 255, 255, .06);
-  border: 1px solid rgba(248, 241, 210, .14);
+  background: rgba(255, 248, 223, .05);
   border-bottom-left-radius: 4px;
   color: rgba(244, 238, 218, .92);
 }
@@ -1797,11 +1843,56 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   max-width: none;
 }
 
+/* Course + unit progress bars: the rail should show the arc of the journey,
+   not just a list of stops. */
+.course-progressline {
+  display: grid;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.course-progressline small {
+  color: rgba(244, 238, 218, .6);
+  font-size: .76rem;
+}
+
+.chalk-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(248, 241, 210, .1);
+  overflow: hidden;
+}
+
+.chalk-bar.slim { height: 2px; margin: 2px 0 8px; }
+
+.chalk-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #bce7a8, #d6f0c4);
+  transition: width 400ms cubic-bezier(.2, .7, .3, 1);
+}
+
 .course-unit {
   margin-top: 18px;
   padding-top: 14px;
-  border-top: 1px dashed rgba(248, 241, 210, .2);
+  border-top: 1px dashed rgba(240, 217, 141, .22);
 }
+
+.unit-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.unit-count {
+  color: rgba(244, 238, 218, .6);
+  font-size: .74rem;
+  font-weight: 800;
+}
+
+.unit-count.complete { color: #bce7a8; }
 
 .course-unit h3 {
   margin: 0 0 4px;
@@ -1828,24 +1919,59 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 .course-lesson {
   width: 100%;
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: start;
   text-align: left;
   padding: 9px 11px;
-  border: 1px solid rgba(248, 241, 210, .18);
+  border: 1px solid rgba(255, 248, 223, .14);
   border-radius: 8px;
-  background: rgba(255, 255, 255, .03);
+  background: rgba(255, 248, 223, .03);
   color: #f4eeda;
   cursor: pointer;
 }
 
-.course-lesson:hover { border-color: rgba(240, 217, 141, .7); }
+.course-lesson:hover {
+  border-color: rgba(240, 217, 141, .7);
+  background: rgba(255, 248, 223, .05);
+  transform: translateY(-1px);
+}
+
+.course-lesson:hover .lesson-go { opacity: .7; }
+.course-lesson:active { transform: translateY(0); }
 .course-lesson:disabled { opacity: .55; cursor: wait; }
 
+.lesson-go {
+  align-self: center;
+  color: #f0d98d;
+  font-size: 1rem;
+  font-weight: 900;
+  opacity: 0;
+}
+
+/* Earned lessons rest quietly — the glyph carries the status; full gold
+   borders are reserved for "up next" and hover, so weight = "act here". */
 .course-lesson.done {
-  border-color: rgba(188, 231, 168, .55);
-  background: rgba(188, 231, 168, .06);
+  border-color: rgba(188, 231, 168, .3);
+  background: rgba(188, 231, 168, .05);
+}
+
+.course-lesson.next {
+  border: 1px solid rgba(240, 217, 141, .75);
+  background: rgba(240, 217, 141, .07);
+}
+
+.up-next-tag {
+  align-self: center;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: rgba(240, 217, 141, .16);
+  color: #f0d98d;
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .lesson-check {
@@ -1864,8 +1990,8 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 .course-lesson.done .lesson-check { border-color: rgba(188, 231, 168, .8); }
 
 .course-lesson.mastered {
-  border-color: rgba(240, 217, 141, .65);
-  background: rgba(240, 217, 141, .07);
+  border-color: rgba(240, 217, 141, .35);
+  background: rgba(240, 217, 141, .05);
 }
 
 .course-lesson.mastered .lesson-check {
@@ -1873,12 +1999,20 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   color: #f0d98d;
 }
 
+/* Locked = sketched but not yet drawn: dashed outline, no fill. */
 .course-lesson.locked {
-  opacity: .38;
+  opacity: .45;
+  border-style: dashed;
+  background: transparent;
   cursor: not-allowed;
 }
 
-.course-lesson.locked:hover { border-color: rgba(248, 241, 210, .18); }
+.course-lesson.locked:hover {
+  border-color: rgba(255, 248, 223, .14);
+  background: transparent;
+  transform: none;
+}
+
 .course-lesson.locked:disabled { cursor: not-allowed; }
 
 .lesson-text { display: grid; gap: 2px; min-width: 0; }
@@ -2105,6 +2239,8 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 
 .counselor-checkin {
   margin: 0;
+  padding-left: 12px;
+  border-left: 3px solid rgba(188, 231, 168, .55);
   color: #fff8df;
   font-size: .98rem;
   line-height: 1.55;
@@ -2122,13 +2258,13 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   gap: 7px;
 }
 
+/* Tags, not buttons: no border, so bordered cards keep meaning "tappable". */
 .counselor-chip {
-  padding: 6px 11px;
-  border: 1px solid rgba(188, 231, 168, .55);
+  padding: 5px 10px;
   border-radius: 999px;
-  background: rgba(188, 231, 168, .07);
-  color: #dcffd0;
-  font-size: .8rem;
+  background: rgba(188, 231, 168, .12);
+  color: #cdf3bd;
+  font-size: .78rem;
   font-weight: 800;
   line-height: 1.3;
 }
@@ -2169,7 +2305,7 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   cursor: pointer;
 }
 
-.counselor-action:hover { border-color: rgba(240, 217, 141, .9); background: rgba(240, 217, 141, .16); }
+.counselor-action:hover { border-color: #f0d98d; background: #f0d98d; color: #1c241c; }
 .counselor-action:disabled { opacity: .5; cursor: wait; }
 
 .counselor-explore {
@@ -2178,17 +2314,35 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 }
 
 .counselor-explore button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   text-align: left;
   padding: 10px 12px;
-  border: 1px solid rgba(248, 241, 210, .22);
+  border: 1px solid rgba(255, 248, 223, .18);
   border-radius: 8px;
-  background: rgba(255, 255, 255, .04);
+  background: rgba(255, 248, 223, .04);
   color: #f4eeda;
   font-size: .9rem;
   cursor: pointer;
 }
 
-.counselor-explore button:hover { border-color: rgba(240, 217, 141, .7); }
+.counselor-explore button::after {
+  content: '›';
+  color: #9fcdff;
+  font-weight: 900;
+  opacity: .5;
+}
+
+.counselor-explore button:hover {
+  border-color: rgba(159, 205, 255, .7);
+  background: rgba(159, 205, 255, .06);
+  transform: translateY(-1px);
+}
+
+.counselor-explore button:hover::after { opacity: 1; }
+.counselor-explore button:active { transform: translateY(0); }
 .counselor-explore button:disabled { opacity: .5; cursor: wait; }
 
 .counselor-encouragement {
@@ -2245,6 +2399,16 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   gap: 8px;
 }
 
+.progress-section + .progress-section {
+  border-top: 1px dashed rgba(240, 217, 141, .18);
+  padding-top: 16px;
+}
+
+.kicker-count {
+  font-style: normal;
+  color: #f0d98d;
+}
+
 .progress-hint {
   margin: 0;
   color: rgba(244, 238, 218, .62);
@@ -2253,6 +2417,8 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   max-width: none;
 }
 
+/* The review queue is the highest-value action in the product — the only
+   cards on this tab that get the saturated gold treatment. */
 .review-queue {
   display: grid;
   gap: 8px;
@@ -2260,37 +2426,110 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 
 .review-queue button {
   display: grid;
-  gap: 3px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
   text-align: left;
   padding: 10px 12px;
   border: 1px solid rgba(240, 217, 141, .45);
+  border-left: 3px solid #f0d98d;
   border-radius: 8px;
   background: rgba(240, 217, 141, .06);
   color: #f4eeda;
   cursor: pointer;
 }
 
-.review-queue button:hover { border-color: rgba(240, 217, 141, .85); }
+.review-queue button:hover {
+  border-color: #f0d98d;
+  background: rgba(240, 217, 141, .1);
+  transform: translateY(-1px);
+}
+
+.review-queue button:active { transform: translateY(0); }
 .review-queue button:disabled { opacity: .5; cursor: wait; }
+
+.review-main { display: grid; gap: 3px; min-width: 0; }
 .review-queue strong { font-size: .9rem; line-height: 1.25; }
 .review-queue small { color: rgba(244, 238, 218, .58); font-size: .76rem; }
+
+/* Waiting three-plus days: warmth, not alarm — the gap is the lesson. */
+.review-queue button.overdue small { color: #f0d98d; }
+
+.review-cta {
+  color: #f0d98d;
+  font-size: .74rem;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: .75;
+}
+
+.review-queue button:hover .review-cta { opacity: 1; }
+
+/* Headline numbers as stat tiles — facts, not buttons, so no borders. */
+.mastery-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.stat-tile {
+  display: grid;
+  gap: 2px;
+  padding: 10px 8px;
+  border-radius: 8px;
+  background: rgba(255, 248, 223, .04);
+  text-align: center;
+}
+
+.stat-tile strong {
+  font-size: 1.45rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.stat-tile span {
+  font-size: .64rem;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: rgba(244, 238, 218, .6);
+}
+
+.stat-tile.mastered strong { color: #f0d98d; }
+.stat-tile.learned strong { color: #bce7a8; }
+.stat-tile.learning strong { color: rgba(244, 238, 218, .85); }
 
 .mastery-list {
   list-style: none;
   margin: 4px 0 0;
   padding: 0;
   display: grid;
-  gap: 6px;
+  gap: 2px;
 }
 
 .mastery-row {
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   gap: 9px;
   align-items: center;
-  padding: 6px 4px;
-  border-bottom: 1px dashed rgba(248, 241, 210, .12);
+  padding: 7px 4px;
+  border-bottom: 1px dashed rgba(240, 217, 141, .12);
 }
+
+.level-glyph {
+  font-size: .82rem;
+  text-align: center;
+  color: rgba(244, 238, 218, .45);
+}
+
+.level-glyph.mastered { color: #f0d98d; text-shadow: 0 0 6px rgba(240, 217, 141, .45); }
+.level-glyph.proficient { color: #bce7a8; }
+.level-glyph.learning { color: #9fcdff; }
+
+.mastery-text { display: grid; min-width: 0; }
 
 .mastery-title {
   font-size: .86rem;
@@ -2299,35 +2538,61 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   white-space: nowrap;
 }
 
+.mastery-text small {
+  color: rgba(244, 238, 218, .48);
+  font-size: .72rem;
+}
+
+/* Status labels are lowercase and colored by level — letterspaced caps are
+   reserved for section headers, and mastered should FEEL earned. */
 .mastery-level {
   color: rgba(244, 238, 218, .55);
   font-size: .74rem;
-  text-transform: uppercase;
-  letter-spacing: .05em;
 }
 
-.level-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  border: 1px solid rgba(248, 241, 210, .4);
-}
-
-.level-dot.mastered { background: #f0d98d; border-color: #f0d98d; box-shadow: 0 0 5px rgba(240, 217, 141, .7); }
-.level-dot.proficient { background: #bce7a8; border-color: #bce7a8; }
-.level-dot.learning { background: rgba(244, 238, 218, .35); }
-.level-dot.new { background: transparent; }
+.mastery-level.mastered { color: #f0d98d; }
+.mastery-level.proficient { color: #bce7a8; }
+.mastery-level.learning { color: rgba(159, 205, 255, .8); }
 
 .record-buttons {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
-.ghost-button.danger {
-  border-color: rgba(255, 138, 128, .7);
-  color: #ffb4ab;
-  background: rgba(255, 138, 128, .08);
+/* --- shared rail motion + focus ---------------------------------------------
+   One quiet lift-and-settle for every interactive element — no glows, no
+   bounces; the chalk-classroom register. */
+
+.side-tabs button,
+.ghost-button,
+.quiet-link,
+.starter-stack button,
+.thread-bubble,
+.course-lesson,
+.lesson-go,
+.review-queue button,
+.review-cta,
+.counselor-action,
+.counselor-explore button,
+.counselor-explore button::after,
+.record-buttons button,
+.timeline-chip,
+.draw-button {
+  transition:
+    background-color 140ms cubic-bezier(.2, .7, .3, 1),
+    border-color 140ms cubic-bezier(.2, .7, .3, 1),
+    color 140ms cubic-bezier(.2, .7, .3, 1),
+    opacity 140ms cubic-bezier(.2, .7, .3, 1),
+    transform 140ms cubic-bezier(.2, .7, .3, 1);
+}
+
+/* Keyboard focus echoes the board's dashed chalk borders — native, not
+   browser-blue. Kids on shared family laptops tab around. */
+:focus-visible {
+  outline: 2px dashed rgba(255, 248, 223, .75);
+  outline-offset: 2px;
 }
 
 @media (max-width: 1080px) {
