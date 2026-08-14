@@ -3,6 +3,7 @@ import type { Lesson } from './lesson-schema';
 import { lessonSchema } from './lesson-schema';
 import { findSampleLesson } from './sample-lessons';
 import { getRoutedModels } from './model-router';
+import type { ProviderKeys } from './provider-keys';
 
 import { tutorSystemPrompt, buildLessonPrompt, type LessonContext } from './tutor-prompt';
 
@@ -154,13 +155,13 @@ function normalizeLessonCandidate(candidate: unknown) {
   return lesson;
 }
 
-export async function generateLesson(topic: string, context: LessonContext = {}): Promise<{ lesson: Lesson; mode: 'ai' | 'demo'; note?: string; model?: string }> {
+export async function generateLesson(topic: string, context: LessonContext = {}, keys?: ProviderKeys): Promise<{ lesson: Lesson; mode: 'ai' | 'demo'; note?: string; model?: string }> {
   const trimmed = topic.trim().slice(0, 2000);
   if (!trimmed) return { lesson: findSampleLesson('derivative'), mode: 'demo', note: 'No topic supplied, showing the default demo lesson.' };
 
   const models = [
-    ...getRoutedModels('blackboard'),
-    ...getRoutedModels('tutor'),
+    ...getRoutedModels('blackboard', keys),
+    ...getRoutedModels('tutor', keys),
   ].filter((model, index, list) => (
     list.findIndex((item) => item.provider === model.provider && item.modelId === model.modelId) === index
   ));
@@ -169,7 +170,7 @@ export async function generateLesson(topic: string, context: LessonContext = {})
     return {
       lesson: findSampleLesson(trimmed),
       mode: 'demo',
-      note: 'Demo mode: add ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY to generate new lessons on the fly.',
+      note: 'Demo mode: add your own model key in the tutor panel — or set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY on the server — to generate new lessons on the fly.',
     };
   }
 

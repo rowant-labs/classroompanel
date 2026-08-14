@@ -1,6 +1,7 @@
 import { streamObject } from 'ai';
 import { lessonStreamSchema } from '@/lib/lesson-schema';
 import { getRoutedModels } from '@/lib/model-router';
+import { keysFromRequest } from '@/lib/provider-keys';
 import { tutorSystemPrompt, buildLessonPrompt, type LessonContext } from '@/lib/tutor-prompt';
 
 export const runtime = 'nodejs';
@@ -15,9 +16,10 @@ export async function POST(request: Request) {
     return Response.json({ error: 'missing-request' }, { status: 400 });
   }
 
+  const keys = keysFromRequest(request);
   const models = [
-    ...getRoutedModels('blackboard'),
-    ...getRoutedModels('tutor'),
+    ...getRoutedModels('blackboard', keys),
+    ...getRoutedModels('tutor', keys),
   ].filter((model, index, list) => (
     list.findIndex((item) => item.provider === model.provider && item.modelId === model.modelId) === index
   ));

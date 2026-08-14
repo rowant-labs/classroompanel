@@ -4,9 +4,10 @@
 
 import { createHash } from 'node:crypto';
 import { generateText, generateImage } from 'ai';
-import { google } from '@ai-sdk/google';
-import { openai } from '@ai-sdk/openai';
+import { google, createGoogleGenerativeAI } from '@ai-sdk/google';
+import { openai, createOpenAI } from '@ai-sdk/openai';
 import { getImageModelCandidates } from './model-router';
+import type { ProviderKeys } from './provider-keys';
 
 export type BoardImageStyle = 'photo' | 'illustration' | 'diagram' | 'cutaway' | 'map';
 
@@ -39,12 +40,14 @@ export type GeneratedBoardImage = {
   model: string;
 };
 
-export async function generateBoardImage(prompt: string, style?: string): Promise<GeneratedBoardImage> {
-  const candidates = getImageModelCandidates();
+export async function generateBoardImage(prompt: string, style?: string, keys?: ProviderKeys): Promise<GeneratedBoardImage> {
+  const candidates = getImageModelCandidates(keys);
   if (candidates.length === 0) {
     throw new ImageGenerationUnavailableError();
   }
 
+  const googleProvider = keys?.google ? createGoogleGenerativeAI({ apiKey: keys.google }) : google;
+  const openaiProvider = keys?.openai ? createOpenAI({ apiKey: keys.openai }) : openai;
   const fullPrompt = buildImagePrompt(prompt, style);
   const failures: string[] = [];
 
@@ -54,7 +57,7 @@ export async function generateBoardImage(prompt: string, style?: string): Promis
       if (candidate.provider === 'google') {
         // Gemini image models emit pictures as files on a text generation call.
         const result = await generateText({
-          model: google(candidate.modelId),
+          model: googleProvider(candidate.modelId),
           prompt: fullPrompt,
           providerOptions: { google: { responseModalities: ['TEXT', 'IMAGE'] } },
         });
@@ -64,7 +67,7 @@ export async function generateBoardImage(prompt: string, style?: string): Promis
       }
 
       const result = await generateImage({
-        model: openai.image(candidate.modelId),
+        model: openaiProvider.image(candidate.modelId),
         prompt: fullPrompt,
         size: '1024x1024',
       });

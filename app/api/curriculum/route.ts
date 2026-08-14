@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { courseSchema, courseLessonSchema, type Course } from '@/lib/course-schema';
 import { buildDigest, splitIntoPseudoPages } from '@/lib/curriculum-ingest';
 import { getRoutedModels } from '@/lib/model-router';
+import { keysFromRequest } from '@/lib/provider-keys';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -158,9 +159,10 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Upload a PDF, .txt, or .md file (or paste text).' }, { status: 400 });
   }
 
+  const keys = keysFromRequest(request);
   const models = [
-    ...getRoutedModels('tutor'),
-    ...getRoutedModels('blackboard'),
+    ...getRoutedModels('tutor', keys),
+    ...getRoutedModels('blackboard', keys),
   ].filter((model, index, list) => (
     list.findIndex((item) => item.provider === model.provider && item.modelId === model.modelId) === index
   // PDF document input is supported by Anthropic and Google models

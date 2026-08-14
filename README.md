@@ -25,14 +25,18 @@ Upload a textbook, chapter, or syllabus → a persistent multi-unit course of in
 
 The app is schema-first. The model returns validated lesson JSON, then our renderer draws known block types. This avoids random unsafe HTML and keeps the blackboard reliable.
 
-Live generation is optional right now:
+Live generation is optional right now, and there are two ways to enable it:
 
-```bash
-cp .env.example .env.local
-# add GOOGLE_GENERATIVE_AI_API_KEY or OPENAI_API_KEY
-```
+- **Server keys (self-hosting):**
 
-Without keys, `/studio` still works in demo-safe mode using built-in sample lessons.
+  ```bash
+  cp .env.example .env.local
+  # add ANTHROPIC_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or OPENAI_API_KEY
+  ```
+
+- **Bring your own key (in the browser):** the tutor panel has a "Bring your own key" affordance. A key from any one provider makes lessons generate live (board pictures need Google or OpenAI). The key is saved in the visitor's own browser (localStorage) and attached to each generation request; the server uses it for that one call and never stores or logs it.
+
+Without any key, `/studio` still works in demo-safe mode using built-in sample lessons.
 
 ## Development
 

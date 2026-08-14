@@ -5,6 +5,7 @@ import type { CSSProperties } from 'react';
 import type { LessonBlock } from '@/lib/lesson-schema';
 import type { LessonView } from '@/lib/lesson-view';
 import { compileExpression, numericDerivative, sampleCurve, autoRangeY } from '@/lib/expression';
+import { byokHeaders } from '@/lib/byok-client';
 
 // Per-do-block interaction state, owned by the workspace so record-keeping
 // stays in one place and board switches reset it like the quiz selection.
@@ -567,7 +568,7 @@ function BoardImage({ block, compact = false }: { block: ImageBlock; compact?: b
     setLoaded(false);
     fetch('/api/board-image', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...byokHeaders() },
       body: JSON.stringify({ prompt: block.prompt, style: block.style }),
     })
       .then(async (response): Promise<BoardImageResult> => {

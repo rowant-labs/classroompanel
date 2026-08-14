@@ -1,7 +1,8 @@
-import { anthropic } from '@ai-sdk/anthropic';
-import { google } from '@ai-sdk/google';
-import { openai } from '@ai-sdk/openai';
+import { anthropic, createAnthropic } from '@ai-sdk/anthropic';
+import { google, createGoogleGenerativeAI } from '@ai-sdk/google';
+import { openai, createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModel } from 'ai';
+import type { ProviderKeys } from './provider-keys';
 
 export type ModelRole = 'tutor' | 'blackboard' | 'fast';
 
@@ -18,17 +19,20 @@ const defaultModels: Record<ModelRole, string[]> = {
     'anthropic:claude-sonnet-4-6',
     'google:gemini-2.5-pro',
     'google:gemini-2.5-flash',
+    'openai:gpt-5.1',
   ],
   blackboard: [
     'anthropic:claude-sonnet-4-6',
     'google:gemini-2.5-flash',
     'anthropic:claude-opus-4-8',
     'google:gemini-2.5-pro',
+    'openai:gpt-5.1',
   ],
   fast: [
     'anthropic:claude-haiku-4-5',
     'google:gemini-2.5-flash',
     'anthropic:claude-sonnet-4-6',
+    'openai:gpt-5-mini',
   ],
 };
 
@@ -38,24 +42,26 @@ const envOverride: Record<ModelRole, string | undefined> = {
   fast: process.env.CLASSROOMPANEL_FAST_MODEL,
 };
 
-function hasProviderKey(provider: string) {
-  if (provider === 'anthropic') return Boolean(process.env.ANTHROPIC_API_KEY);
-  if (provider === 'openai') return Boolean(process.env.OPENAI_API_KEY);
-  if (provider === 'google') return Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY);
+// A provider is usable when the server has its env key OR the request carried
+// a visitor's own key (BYOK). The visitor's key wins so their spend is theirs.
+function hasProviderKey(provider: string, keys?: ProviderKeys) {
+  if (provider === 'anthropic') return Boolean(keys?.anthropic || process.env.ANTHROPIC_API_KEY);
+  if (provider === 'openai') return Boolean(keys?.openai || process.env.OPENAI_API_KEY);
+  if (provider === 'google') return Boolean(keys?.google || process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY);
   return false;
 }
 
-function toModel(provider: RoutedModel['provider'], modelId: string): LanguageModel {
-  if (provider === 'anthropic') return anthropic(modelId);
-  if (provider === 'openai') return openai(modelId);
-  return google(modelId);
+function toModel(provider: RoutedModel['provider'], modelId: string, keys?: ProviderKeys): LanguageModel {
+  if (provider === 'anthropic') return keys?.anthropic ? createAnthropic({ apiKey: keys.anthropic })(modelId) : anthropic(modelId);
+  if (provider === 'openai') return keys?.openai ? createOpenAI({ apiKey: keys.openai })(modelId) : openai(modelId);
+  return keys?.google ? createGoogleGenerativeAI({ apiKey: keys.google })(modelId) : google(modelId);
 }
 
-export function getRoutedModel(role: ModelRole): RoutedModel | null {
-  return getRoutedModels(role)[0] ?? null;
+export function getRoutedModel(role: ModelRole, keys?: ProviderKeys): RoutedModel | null {
+  return getRoutedModels(role, keys)[0] ?? null;
 }
 
-export function getRoutedModels(role: ModelRole): RoutedModel[] {
+export function getRoutedModels(role: ModelRole, keys?: ProviderKeys): RoutedModel[] {
   const candidates = [envOverride[role], ...defaultModels[role]].filter(Boolean) as string[];
   const routedModels: RoutedModel[] = [];
   const seen = new Set<string>();
@@ -69,10 +75,10 @@ export function getRoutedModels(role: ModelRole): RoutedModel[] {
 
     if (!provider || !modelId) continue;
     if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google') continue;
-    if (!hasProviderKey(provider)) continue;
+    if (!hasProviderKey(provider, keys)) continue;
 
     routedModels.push({
-      model: toModel(provider, modelId),
+      model: toModel(provider, modelId, keys),
       provider,
       modelId,
       role,
@@ -97,7 +103,7 @@ const defaultImageModels = [
   'openai:dall-e-3',
 ];
 
-export function getImageModelCandidates(): ImageModelCandidate[] {
+export function getImageModelCandidates(keys?: ProviderKeys): ImageModelCandidate[] {
   const candidates = [process.env.CLASSROOMPANEL_IMAGE_MODEL, ...defaultImageModels].filter(Boolean) as string[];
   const out: ImageModelCandidate[] = [];
   const seen = new Set<string>();
@@ -110,22 +116,29 @@ export function getImageModelCandidates(): ImageModelCandidate[] {
     const modelId = modelParts.join(':');
     if (!modelId) continue;
     if (provider !== 'google' && provider !== 'openai') continue;
-    if (!hasProviderKey(provider)) continue;
+    if (!hasProviderKey(provider, keys)) continue;
     out.push({ provider, modelId });
   }
 
   return out;
 }
 
-export function modelStatus() {
+// Reports availability only — never key values, never whether a given value
+// came from the env or a header beyond the byok flags the client already knows.
+export function modelStatus(keys?: ProviderKeys) {
   return {
     keys: {
-      anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
-      openai: Boolean(process.env.OPENAI_API_KEY),
-      google: Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY),
+      anthropic: hasProviderKey('anthropic', keys),
+      openai: hasProviderKey('openai', keys),
+      google: hasProviderKey('google', keys),
+    },
+    byok: {
+      anthropic: Boolean(keys?.anthropic),
+      openai: Boolean(keys?.openai),
+      google: Boolean(keys?.google),
     },
     defaults: defaultModels,
     overrides: envOverride,
-    imageModels: getImageModelCandidates().map((candidate) => `${candidate.provider}:${candidate.modelId}`),
+    imageModels: getImageModelCandidates(keys).map((candidate) => `${candidate.provider}:${candidate.modelId}`),
   };
 }

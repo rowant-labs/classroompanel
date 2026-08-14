@@ -6,6 +6,7 @@ import {
   ImageGenerationUnavailableError,
   BOARD_IMAGE_STYLES,
 } from '@/lib/board-image';
+import { keysFromRequest, type ProviderKeys } from '@/lib/provider-keys';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -26,11 +27,11 @@ async function isCached(key: string): Promise<boolean> {
   }
 }
 
-async function resolveImage(prompt: string, style: string | undefined, key: string) {
+async function resolveImage(prompt: string, style: string | undefined, key: string, keys: ProviderKeys) {
   if (await isCached(key)) {
     return { url: `/api/board-image/${key}`, cached: true };
   }
-  const generated = await generateBoardImage(prompt, style);
+  const generated = await generateBoardImage(prompt, style, keys);
   await mkdir(CACHE_DIR, { recursive: true });
   await writeFile(path.join(CACHE_DIR, `${key}.png`), generated.bytes);
   return { url: `/api/board-image/${key}`, model: generated.model, cached: false };
@@ -52,7 +53,9 @@ export async function POST(request: Request) {
   try {
     let pending = inFlight.get(key);
     if (!pending) {
-      pending = resolveImage(prompt, style, key).finally(() => inFlight.delete(key));
+      // Concurrent identical prompts share one generation; it runs on whichever
+      // requester's keys arrived first. The cached PNG is shared content either way.
+      pending = resolveImage(prompt, style, key, keysFromRequest(request)).finally(() => inFlight.delete(key));
       inFlight.set(key, pending);
     }
     const result = await pending;

@@ -1,6 +1,7 @@
 import { generateObject, type RepairTextFunction } from 'ai';
 import { counselorReportSchema, type CounselorSnapshot } from '@/lib/counselor-schema';
 import { getRoutedModels } from '@/lib/model-router';
+import { keysFromRequest } from '@/lib/provider-keys';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -205,9 +206,10 @@ export async function POST(request: Request) {
   const snapshot = sanitizeSnapshot((body as Record<string, unknown> | null)?.snapshot);
   const prompt = describeSnapshot(snapshot);
 
+  const keys = keysFromRequest(request);
   const models = [
-    ...getRoutedModels('fast'),
-    ...getRoutedModels('tutor'),
+    ...getRoutedModels('fast', keys),
+    ...getRoutedModels('tutor', keys),
   ].filter((model, index, list) => (
     list.findIndex((item) => item.provider === model.provider && item.modelId === model.modelId) === index
   ));

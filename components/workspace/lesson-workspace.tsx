@@ -29,6 +29,8 @@ import {
   type LearnerRecord,
   type MasteryLevel,
 } from '@/lib/learner-record';
+import { byokFetch, byokHeaders, loadByokKeys, saveByokKeys } from '@/lib/byok-client';
+import { PROVIDERS, type Provider, type ProviderKeys } from '@/lib/provider-keys';
 
 type ChatMessage = { id: string; role: 'student' | 'tutor'; text: string };
 type BoardRecord = {
@@ -98,6 +100,18 @@ const MAX_ATTEMPTS = 40;
 // have happened since the last report.
 const COUNSELOR_REFRESH_EVENTS = 2;
 
+const providerLabels: Record<Provider, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  google: 'Google',
+};
+
+const providerKeyHints: Record<Provider, string> = {
+  anthropic: 'sk-ant-…',
+  openai: 'sk-…',
+  google: 'AIza…',
+};
+
 const starterPrompts = [
   'I don’t understand derivatives',
   'Why do heavy and light things fall at the same speed?',
@@ -135,6 +149,11 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   const [isCounselorLoading, setIsCounselorLoading] = useState(false);
   const [totalAttempts, setTotalAttempts] = useState(0);
   const [totalBoards, setTotalBoards] = useState(0);
+  // BYOK: the visitor's own provider keys. Saved keys live in localStorage
+  // (byok-client) and ride each generation request; this state only drives UI.
+  const [byokKeys, setByokKeys] = useState<ProviderKeys>({});
+  const [byokDraft, setByokDraft] = useState<ProviderKeys>({});
+  const [showKeyPanel, setShowKeyPanel] = useState(false);
 
   // What the in-flight generation is about (topic shown in history, course bookkeeping)
   const pendingRef = useRef<{ topic: string; context: LessonContext; courseLessonId?: string; conceptKey?: string } | null>(null);
@@ -206,6 +225,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
       legacyDoneRef.current = saved?.done;
     }
     setRecord(loaded);
+    setByokKeys(loadByokKeys());
     setHydrated(true);
   }, []);
 
@@ -288,7 +308,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     try {
       const response = await fetch('/api/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...byokHeaders() },
         body: JSON.stringify({ topic, context }),
       });
       const data = await response.json();
@@ -311,6 +331,9 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   const { object: streamingLesson, submit, isLoading: isStreaming } = useObject({
     api: '/api/lesson',
     schema: lessonSchema,
+    // Reads BYOK keys from storage at request time, so a just-saved key
+    // applies to the very next board.
+    fetch: byokFetch,
     onFinish: ({ object }) => {
       const pending = pendingRef.current;
       if (object) {
@@ -343,6 +366,33 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   const conversationContext = useCallback((): LessonContext => ({
     history: messages.slice(-8).map((message) => ({ role: message.role, text: message.text })),
   }), [messages]);
+
+  // ---- bring-your-own-key ----------------------------------------------------
+  const openKeyPanel = useCallback(() => {
+    setByokDraft(loadByokKeys());
+    setShowKeyPanel(true);
+  }, []);
+
+  const handleSaveKeys = useCallback(() => {
+    const cleaned = saveByokKeys(byokDraft);
+    setByokKeys(cleaned);
+    setByokDraft(cleaned);
+    setShowKeyPanel(false);
+    const active = PROVIDERS.filter((provider) => cleaned[provider]).map((provider) => providerLabels[provider]);
+    setStatusNote(active.length > 0
+      ? `${active.join(' + ')} key saved in this browser — new boards will draw live.`
+      : 'Keys removed — boards fall back to the built-in demo lessons.');
+  }, [byokDraft]);
+
+  const handleClearKeys = useCallback(() => {
+    saveByokKeys({});
+    setByokKeys({});
+    setByokDraft({});
+    setShowKeyPanel(false);
+    setStatusNote('Keys removed — boards fall back to the built-in demo lessons.');
+  }, []);
+
+  const activeByokProviders = PROVIDERS.filter((provider) => byokKeys[provider]);
 
   // ---- guidance counselor ----------------------------------------------------
   // Events (attempts + boards) that happened since the last report. With no
@@ -385,7 +435,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
       };
       const response = await fetch('/api/counselor', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...byokHeaders() },
         body: JSON.stringify({ snapshot }),
       });
       const data = await response.json();
@@ -586,7 +636,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     try {
       const form = new FormData();
       form.append('file', file);
-      const response = await fetch('/api/curriculum', { method: 'POST', body: form });
+      const response = await fetch('/api/curriculum', { method: 'POST', headers: byokHeaders(), body: form });
       const data = await response.json();
       if (response.ok && data?.course) {
         setCourse(data.course as Course);
@@ -839,6 +889,45 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
                   {isDrawing ? 'Drawing…' : 'Draw it'}
                 </button>
               </form>
+
+              {showKeyPanel ? (
+                <div className="byok-panel">
+                  <div className="byok-head">
+                    <span className="chalk-kicker-dark">Your model keys</span>
+                    <button type="button" className="quiet-link" onClick={() => setShowKeyPanel(false)}>Close</button>
+                  </div>
+                  <p className="byok-note">
+                    One key from any provider makes lessons generate live; board pictures need Google or OpenAI.
+                    Keys stay in this browser and travel with each request — the server never stores or logs them.
+                  </p>
+                  {PROVIDERS.map((provider) => (
+                    <label key={provider} className="byok-row">
+                      <span>{providerLabels[provider]}</span>
+                      <input
+                        type="password"
+                        value={byokDraft[provider] ?? ''}
+                        onChange={(event) => setByokDraft((prev) => ({ ...prev, [provider]: event.target.value }))}
+                        placeholder={providerKeyHints[provider]}
+                        autoComplete="off"
+                        spellCheck={false}
+                        aria-label={`${providerLabels[provider]} API key`}
+                      />
+                    </label>
+                  ))}
+                  <div className="byok-actions">
+                    <button type="button" className="ghost-button primary" onClick={handleSaveKeys}>Save</button>
+                    {activeByokProviders.length > 0 && (
+                      <button type="button" className="quiet-link" onClick={handleClearKeys}>Remove all keys</button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="quiet-link byok-toggle" onClick={openKeyPanel}>
+                  {activeByokProviders.length > 0
+                    ? `Your key: ${activeByokProviders.map((provider) => providerLabels[provider]).join(' + ')}`
+                    : 'Bring your own key for live lessons'}
+                </button>
+              )}
             </div>
           ) : sideTab === 'course' ? (
             <div className="course-panel">

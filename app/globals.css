@@ -1771,6 +1771,73 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   box-shadow: 0 0 0 3px rgba(240, 217, 141, .12);
 }
 
+/* --- bring-your-own-key ------------------------------------------------------
+   Sits under the composer as a quiet affordance; expands into a small panel.
+   The disclosure text is part of the product's honesty, not boilerplate. */
+
+.byok-toggle {
+  margin: 0;
+  padding: 8px 10px 10px;
+  text-align: left;
+  background: rgba(10, 14, 12, .6);
+}
+
+.byok-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px 10px;
+  border-top: 1px solid rgba(240, 217, 141, .18);
+  background: rgba(10, 14, 12, .6);
+}
+
+.byok-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.byok-note {
+  margin: 0;
+  color: rgba(244, 238, 218, .62);
+  font-size: .78rem;
+  line-height: 1.5;
+  max-width: none;
+}
+
+.byok-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  color: rgba(244, 238, 218, .75);
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+.byok-row input {
+  width: 100%;
+  border: 1px solid rgba(248, 241, 210, .2);
+  border-radius: 6px;
+  outline: 0;
+  padding: 7px 9px;
+  background: rgba(255, 255, 255, .05);
+  color: #fff8df;
+  font-size: .8rem;
+  font-family: var(--font-geist-mono, monospace);
+}
+
+.byok-row input:focus {
+  border-color: rgba(240, 217, 141, .82);
+  box-shadow: 0 0 0 3px rgba(240, 217, 141, .12);
+}
+
+.byok-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 /* --- course panel ------------------------------------------------------------ */
 
 .course-panel {

@@ -38,6 +38,7 @@ Any app state can be staged without AI generation by writing localStorage and re
 3. **Answered persistence**: an answered board's quiz shows its result after board-switch and reload, and re-clicking records nothing.
 4. **Record safety**: unreadable record → quarantined verbatim + status note, never overwritten; export/import round-trips and restores the embedded course.
 5. **Gating**: course rail — one "Up next" lesson, locked lessons named after their prerequisite, earned lessons never re-lock after a failed review.
+6. **BYOK** (run the dev server with provider env vars stripped: `env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u GOOGLE_GENERATIVE_AI_API_KEY -u GOOGLE_API_KEY npm run dev`): save a fake key via the tutor-panel "Bring your own key" toggle → `classroompanel.keys.v1` in localStorage, `/api/lesson` and `/api/generate` requests carry `x-classroompanel-key-*` headers, the failure status note names the attempted provider's models (proof the key was used), and the toggle still shows the key after reload.
 
 ## Gotchas
 
