@@ -7,6 +7,13 @@ import type { LessonView } from '@/lib/lesson-view';
 import { compileExpression, numericDerivative, sampleCurve, autoRangeY } from '@/lib/expression';
 import { byokHeaders } from '@/lib/byok-client';
 
+// The tutor's read of a say-it-back explanation (from /api/selfexplain).
+export type SelfExplainGrade = {
+  coveredIndices: number[];
+  covered: boolean;
+  feedback: string;
+};
+
 // Per-do-block interaction state, owned by the workspace so record-keeping
 // stays in one place and board switches reset it like the quiz selection.
 export type DoBlockState = {
@@ -14,6 +21,10 @@ export type DoBlockState = {
   text?: string;
   revealed?: boolean;
   selfMark?: 'covered' | 'missed';
+  // Say-it-back grading: true while the tutor reads the answer; the grade
+  // replaces the self-mark buttons when it arrives. Absent = self-mark flow.
+  grading?: boolean;
+  grade?: SelfExplainGrade;
 };
 
 type LessonRendererProps = {
@@ -345,30 +356,54 @@ function SelfExplainPanel({
       ) : (
         <>
           {state?.text && <blockquote className="selfexplain-yours">“{state.text}”</blockquote>}
-          <div className="selfexplain-keypoints">
-            <span className="chalk-kicker">A good answer hits these</span>
-            <ul>
-              {block.keyPoints.map((point) => (
-                <li key={point}>{point}</li>
-              ))}
-            </ul>
-            <p className="selfexplain-exemplar">One way to say it: {block.exemplar}</p>
-          </div>
-          {!marked ? (
-            <div className="selfexplain-actions">
-              <button type="button" className="reteach-button" onClick={() => onMark?.(block, true)}>
-                I covered these
-              </button>
-              <button type="button" className="reteach-button" onClick={() => onMark?.(block, false)}>
-                I missed some
-              </button>
-            </div>
+          {state?.grading ? (
+            <p className="selfexplain-reading">The tutor is reading your answer…</p>
+          ) : state?.grade ? (
+            <>
+              <div className="selfexplain-keypoints">
+                <span className="chalk-kicker">A good answer hits these</span>
+                <ul>
+                  {block.keyPoints.map((point, index) => {
+                    const hit = state.grade!.coveredIndices.includes(index);
+                    return (
+                      <li key={point} className={hit ? 'kp-hit' : 'kp-miss'}>
+                        <span aria-hidden="true">{hit ? '✓' : '○'}</span> {point}
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="selfexplain-exemplar">One way to say it: {block.exemplar}</p>
+              </div>
+              <p className="selfexplain-feedback">{state.grade.feedback}</p>
+            </>
           ) : (
-            <p className="board-response">
-              {marked === 'covered'
-                ? 'Nice — explaining it in your own words is what makes it stick.'
-                : 'Good honesty — spotting the gap is how it closes. The quick check below will help.'}
-            </p>
+            <>
+              <div className="selfexplain-keypoints">
+                <span className="chalk-kicker">A good answer hits these</span>
+                <ul>
+                  {block.keyPoints.map((point) => (
+                    <li key={point}>{point}</li>
+                  ))}
+                </ul>
+                <p className="selfexplain-exemplar">One way to say it: {block.exemplar}</p>
+              </div>
+              {!marked ? (
+                <div className="selfexplain-actions">
+                  <button type="button" className="reteach-button" onClick={() => onMark?.(block, true)}>
+                    I covered these
+                  </button>
+                  <button type="button" className="reteach-button" onClick={() => onMark?.(block, false)}>
+                    I missed some
+                  </button>
+                </div>
+              ) : (
+                <p className="board-response">
+                  {marked === 'covered'
+                    ? 'Nice — explaining it in your own words is what makes it stick.'
+                    : 'Good honesty — spotting the gap is how it closes. The quick check below will help.'}
+                </p>
+              )}
+            </>
           )}
         </>
       )}

@@ -33,7 +33,7 @@ Any app state can be staged without AI generation by writing localStorage and re
 
 ## Flows worth exercising after a change
 
-1. **Do-block loop** (initial demo board, no state needed): commit a predict choice → reveal appears, buttons lock; type ≥20 chars in say-it-back → compare → self-mark; answer quiz → record in localStorage gains attempts with kinds `[predict, selfExplain, quiz]`; only the quiz moves concept counters.
+1. **Do-block loop** (initial demo board, no state needed): commit a predict choice → reveal appears, buttons lock; type ≥20 chars in say-it-back → compare → **keyless: self-mark buttons; with a live key: "The tutor is reading your answer…" → LLM grade via `/api/selfexplain` (per-keypoint ✓/○ + gold feedback line, no self-mark buttons)**; answer quiz → record in localStorage gains attempts with kinds `[predict, selfExplain, quiz]`; only the quiz moves concept counters (a graded say-it-back records correct=covered but is still practice).
 2. **Mastery honesty**: wrong predict / "missed some" self-mark must never change `correctCount`/`incorrectCount`/`streak`/`stage`/`dueAt`.
 3. **Answered persistence**: an answered board's quiz shows its result after board-switch and reload, and re-clicking records nothing.
 4. **Record safety**: unreadable record → quarantined verbatim + status note, never overwritten; export/import round-trips and restores the embedded course.

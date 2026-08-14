@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { experimental_useObject as useObject } from '@ai-sdk/react';
-import { LessonRenderer, type DoBlockState, type PredictBlock, type SelfExplainBlock } from '@/components/lesson-renderer';
+import { LessonRenderer, type DoBlockState, type PredictBlock, type SelfExplainBlock, type SelfExplainGrade } from '@/components/lesson-renderer';
 import { lessonSchema, type Lesson } from '@/lib/lesson-schema';
 import { toLessonView, type LessonView } from '@/lib/lesson-view';
 import { courseSchema, type Course, type CourseLesson, type CourseUnit } from '@/lib/course-schema';
@@ -167,6 +167,9 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
 
   // What the in-flight generation is about (topic shown in history, course bookkeeping)
   const pendingRef = useRef<{ topic: string; context: LessonContext; courseLessonId?: string; conceptKey?: string } | null>(null);
+  // Bumped every time doStates resets (new board, board switch, new session) so
+  // an in-flight say-it-back grade from the old board is dropped, not applied.
+  const doEpochRef = useRef(0);
   // Legacy done-on-draw flags kept in session saves ONLY until the migrated
   // record is safely persisted — so a failed record write can't strand the
   // migration source.
@@ -310,6 +313,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     }]);
     setTotalBoards((count) => count + 1);
     setSelectedAnswer(null);
+    doEpochRef.current += 1;
     setDoStates({});
   }, [course]);
 
@@ -423,6 +427,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     const spoken = options?.spokenAs ?? request;
     setMessages((prev) => [...prev, { id: makeId('msg'), role: 'student', text: spoken }]);
     setSelectedAnswer(null);
+    doEpochRef.current += 1;
     setDoStates({});
     setStatusNote('The tutor is drawing…');
     pendingRef.current = { topic: spoken, context, courseLessonId: options?.courseLessonId, conceptKey: options?.conceptKey };
@@ -686,13 +691,51 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     if (isStreaming || !text) return;
     // The record caps free text: the learner's words are theirs, but the
     // portable file shouldn't balloon on one long paragraph.
-    setDoStates((prev) => ({ ...prev, [block.id]: { ...prev[block.id], text: text.slice(0, 500), revealed: true } }));
+    const trimmed = text.slice(0, 500);
+    // With a live key, the tutor actually READS the explanation (fast model)
+    // instead of leaving the kid to grade themselves. Grading is feedback, not
+    // a gate — like all practice it never moves mastery. Keyless or on any
+    // failure, fall back to the honest compare-and-self-mark flow.
+    const wantGrade = canGenerate !== false;
+    setDoStates((prev) => ({ ...prev, [block.id]: { ...prev[block.id], text: trimmed, revealed: true, grading: wantGrade } }));
+    if (!wantGrade) return;
+    const epoch = doEpochRef.current;
+    (async () => {
+      try {
+        const response = await fetch('/api/selfexplain', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...byokHeaders() },
+          body: JSON.stringify({
+            prompt: block.prompt,
+            keyPoints: block.keyPoints,
+            exemplar: block.exemplar,
+            studentText: trimmed,
+          }),
+        });
+        const data = await response.json().catch(() => null);
+        if (epoch !== doEpochRef.current) return; // board changed mid-flight
+        if (response.ok && data?.grade) {
+          const grade = data.grade as SelfExplainGrade;
+          setDoStates((prev) => ({
+            ...prev,
+            [block.id]: { ...prev[block.id], grading: false, grade, selfMark: grade.covered ? 'covered' : 'missed' },
+          }));
+          recordPractice('selfExplain', block.prompt, trimmed, grade.covered);
+        } else {
+          setDoStates((prev) => ({ ...prev, [block.id]: { ...prev[block.id], grading: false } }));
+        }
+      } catch {
+        if (epoch === doEpochRef.current) {
+          setDoStates((prev) => ({ ...prev, [block.id]: { ...prev[block.id], grading: false } }));
+        }
+      }
+    })();
   }
 
   function handleSelfExplainMark(block: SelfExplainBlock, covered: boolean) {
     if (isStreaming) return;
     const state = doStates[block.id];
-    if (!state?.revealed || state.selfMark) return;
+    if (!state?.revealed || state.selfMark || state.grading || state.grade) return;
     setDoStates((prev) => ({ ...prev, [block.id]: { ...prev[block.id], selfMark: covered ? 'covered' : 'missed' } }));
     recordPractice('selfExplain', block.prompt, state.text ?? '', covered);
   }
@@ -879,6 +922,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     setActiveBoardIndex(0);
     setCourse(null);
     setSelectedAnswer(null);
+    doEpochRef.current += 1;
     setDoStates({});
     setAttempts([]);
     setCounselor(null);
@@ -1333,7 +1377,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
                   type="button"
                   key={board.id}
                   className={index === activeBoardIndex && !isStreaming ? 'timeline-chip active' : 'timeline-chip'}
-                  onClick={() => { setActiveBoardIndex(index); setSelectedAnswer(board.answered?.choice ?? null); setDoStates({}); }}
+                  onClick={() => { setActiveBoardIndex(index); setSelectedAnswer(board.answered?.choice ?? null); doEpochRef.current += 1; setDoStates({}); }}
                 >
                   {index + 1}. {board.lesson.title}
                 </button>

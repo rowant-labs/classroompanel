@@ -1069,6 +1069,35 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   color: rgba(255, 248, 223, .62);
 }
 
+/* Say-it-back grading: the tutor reading, then a graded key-point list and a
+   spoken line of feedback. Feedback wears the tutor's gold, never red ink. */
+.selfexplain-reading {
+  margin: 0;
+  color: rgba(255, 248, 223, .68);
+  font-style: italic;
+  animation: boardPulse 1.4s ease-in-out infinite;
+}
+
+.selfexplain-keypoints li.kp-hit,
+.selfexplain-keypoints li.kp-miss {
+  list-style: none;
+  margin-left: -18px;
+}
+
+.selfexplain-keypoints li.kp-hit span { color: #bce7a8; font-weight: 900; }
+.selfexplain-keypoints li.kp-miss { color: rgba(255, 248, 223, .6); }
+.selfexplain-keypoints li.kp-miss span { color: rgba(240, 217, 141, .8); font-weight: 900; }
+
+.selfexplain-feedback {
+  margin: 0;
+  padding: 10px 14px;
+  border-left: 3px solid rgba(240, 217, 141, .8);
+  background: rgba(240, 217, 141, .07);
+  border-radius: 0 8px 8px 0;
+  color: #fff8df;
+  line-height: 1.5;
+}
+
 .selfexplain-yours {
   margin: 0;
   padding-left: 14px;
