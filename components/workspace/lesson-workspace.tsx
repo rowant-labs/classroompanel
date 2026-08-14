@@ -154,6 +154,9 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   const [byokKeys, setByokKeys] = useState<ProviderKeys>({});
   const [byokDraft, setByokDraft] = useState<ProviderKeys>({});
   const [showKeyPanel, setShowKeyPanel] = useState(false);
+  // Whether ANY provider is live (server env key or a BYOK key). false gates
+  // generation behind the key panel; null = not yet known, let the server decide.
+  const [canGenerate, setCanGenerate] = useState<boolean | null>(null);
 
   // What the in-flight generation is about (topic shown in history, course bookkeeping)
   const pendingRef = useRef<{ topic: string; context: LessonContext; courseLessonId?: string; conceptKey?: string } | null>(null);
@@ -312,12 +315,23 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
         body: JSON.stringify({ topic, context }),
       });
       const data = await response.json();
-      if (data?.lesson) {
+      if (response.ok && data?.lesson) {
         commitBoard(data.lesson as Lesson, data.model);
-        setStatusNote(data.note ?? (data.mode === 'ai' ? `Drawn with ${data.model}.` : 'Demo board (no AI key live right now).'));
-      } else {
-        setStatusNote('The tutor couldn’t draw that one. Try rephrasing?');
+        setStatusNote(`Board drawn with ${data.model}.`);
+      } else if (data?.error === 'no-models') {
+        // No key anywhere — ask for one honestly instead of faking a board.
         pendingRef.current = null;
+        setCanGenerate(false);
+        setShowKeyPanel(true);
+        setStatusNote('Add a model key to draw live lessons — one key from any provider unlocks the tutor.');
+      } else {
+        pendingRef.current = null;
+        setStatusNote(data?.note ?? 'The tutor couldn’t draw that one. Try again?');
+        setMessages((prev) => [...prev, {
+          id: makeId('msg'),
+          role: 'tutor',
+          text: 'I couldn’t draw that board — the model connection failed. Give it another try in a moment?',
+        }]);
       }
     } catch {
       setStatusNote('Connection hiccup — try drawing again.');
@@ -354,6 +368,12 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
 
   const teach = useCallback((request: string, context: LessonContext, options?: { spokenAs?: string; courseLessonId?: string; conceptKey?: string }) => {
     if (isDrawing) return;
+    // Known-keyless: don't pretend to generate — open the key panel instead.
+    if (canGenerate === false) {
+      setShowKeyPanel(true);
+      setStatusNote('Add a model key to draw live lessons — one key from any provider unlocks the tutor.');
+      return;
+    }
     const spoken = options?.spokenAs ?? request;
     setMessages((prev) => [...prev, { id: makeId('msg'), role: 'student', text: spoken }]);
     setSelectedAnswer(null);
@@ -361,13 +381,29 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     setStatusNote('The tutor is drawing…');
     pendingRef.current = { topic: spoken, context, courseLessonId: options?.courseLessonId, conceptKey: options?.conceptKey };
     submit({ request, context });
-  }, [isDrawing, submit]);
+  }, [isDrawing, submit, canGenerate]);
 
   const conversationContext = useCallback((): LessonContext => ({
     history: messages.slice(-8).map((message) => ({ role: message.role, text: message.text })),
   }), [messages]);
 
   // ---- bring-your-own-key ----------------------------------------------------
+  // Ask the server which providers are live (its env keys + our BYOK headers).
+  const refreshCanGenerate = useCallback(async () => {
+    try {
+      const response = await fetch('/api/models', { headers: byokHeaders() });
+      const data = await response.json();
+      const keys = data?.keys as Record<string, boolean> | undefined;
+      setCanGenerate(Boolean(keys && (keys.anthropic || keys.openai || keys.google)));
+    } catch {
+      setCanGenerate(null); // unknown — let the server be the judge on submit
+    }
+  }, []);
+
+  useEffect(() => {
+    if (hydrated) refreshCanGenerate();
+  }, [hydrated, refreshCanGenerate]);
+
   const openKeyPanel = useCallback(() => {
     setByokDraft(loadByokKeys());
     setShowKeyPanel(true);
@@ -381,16 +417,18 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     const active = PROVIDERS.filter((provider) => cleaned[provider]).map((provider) => providerLabels[provider]);
     setStatusNote(active.length > 0
       ? `${active.join(' + ')} key saved in this browser — new boards will draw live.`
-      : 'Keys removed — boards fall back to the built-in demo lessons.');
-  }, [byokDraft]);
+      : 'Keys removed.');
+    refreshCanGenerate();
+  }, [byokDraft, refreshCanGenerate]);
 
   const handleClearKeys = useCallback(() => {
     saveByokKeys({});
     setByokKeys({});
     setByokDraft({});
     setShowKeyPanel(false);
-    setStatusNote('Keys removed — boards fall back to the built-in demo lessons.');
-  }, []);
+    setStatusNote('Keys removed.');
+    refreshCanGenerate();
+  }, [refreshCanGenerate]);
 
   const activeByokProviders = PROVIDERS.filter((provider) => byokKeys[provider]);
 
@@ -466,16 +504,23 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   // stale. The tried-key guard above stops error loops until new events land.
   useEffect(() => {
     if (!hydrated || sideTab !== 'counselor') return;
+    if (canGenerate === false) return; // keyless — don't burn requests that must fail
     if (!counselor || counselorNewEvents >= COUNSELOR_REFRESH_EVENTS) {
       fetchCounselorReport();
     }
-  }, [hydrated, sideTab, counselor, counselorNewEvents, fetchCounselorReport]);
+  }, [hydrated, sideTab, counselor, counselorNewEvents, fetchCounselorReport, canGenerate]);
 
   function handleComposerSubmit() {
     const text = composerText.trim();
     if (!text || isDrawing) return;
-    setComposerText('');
     setSideTab('tutor');
+    if (canGenerate === false) {
+      // Keep their question in the composer — it should survive adding a key.
+      setShowKeyPanel(true);
+      setStatusNote('Add a model key to draw live lessons — one key from any provider unlocks the tutor.');
+      return;
+    }
+    setComposerText('');
     teach(text, conversationContext());
   }
 
@@ -631,6 +676,12 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   // ---- curriculum upload -----------------------------------------------------
   async function handleCurriculumFile(file: File) {
     if (isUploading) return;
+    if (canGenerate === false) {
+      setSideTab('tutor');
+      setShowKeyPanel(true);
+      setStatusNote('Building a course needs a model key — add one and upload again.');
+      return;
+    }
     setIsUploading(true);
     setStatusNote(`Reading “${file.name}” and building your course…`);
     try {
@@ -899,6 +950,13 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
                   <p className="byok-note">
                     One key from any provider makes lessons generate live; board pictures need Google or OpenAI.
                     Keys stay in this browser and travel with each request — the server never stores or logs them.
+                  </p>
+                  <p className="byok-note">
+                    No key yet? Create one at{' '}
+                    <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">Anthropic</a>,{' '}
+                    <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">OpenAI</a>, or{' '}
+                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Google AI Studio</a>{' '}
+                    (Google's has a free tier).
                   </p>
                   {PROVIDERS.map((provider) => (
                     <label key={provider} className="byok-row">

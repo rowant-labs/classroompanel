@@ -36,7 +36,7 @@ Live generation is optional right now, and there are two ways to enable it:
 
 - **Bring your own key (in the browser):** the tutor panel has a "Bring your own key" affordance. A key from any one provider makes lessons generate live (board pictures need Google or OpenAI). The key is saved in the visitor's own browser (localStorage) and attached to each generation request; the server uses it for that one call and never stores or logs it.
 
-Without any key, `/studio` still works in demo-safe mode using built-in sample lessons.
+Without any key, `/studio` still opens with a built-in showcase board (do-blocks, quiz, and the learner record all work), and asks for a key before drawing anything new — it never passes off a canned lesson as a generated one.
 
 ## Development
 

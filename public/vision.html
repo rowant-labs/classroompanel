@@ -20,7 +20,9 @@
     .timeline { counter-reset: step; padding: 0; list-style: none; }
     .timeline li { counter-increment: step; margin: 12px 0; padding-left: 46px; position: relative; }
     .timeline li:before { content: counter(step); position: absolute; left: 0; top: 2px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--bg); font-weight: 900; }
-    code { color: var(--green); }
+    .cta { display: inline-flex; align-items: center; gap: 8px; padding: 13px 20px; border-radius: 999px; font-weight: 900; text-decoration: none; margin: 10px 12px 0 0; }
+    .cta.primary { background: var(--accent); color: var(--bg); }
+    .cta.secondary { border: 1px solid rgba(255,255,255,.3); color: var(--text); }
     @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -41,41 +43,50 @@
 
     <section class="grid">
       <div>
-        <h2>MVP wedge</h2>
-        <p><strong>Upload a PDF/chapter/syllabus → generate an interactive blackboard lesson.</strong></p>
-        <ul>
-          <li>Start with one subject area where visuals matter.</li>
-          <li>Render reliable components instead of arbitrary images.</li>
-          <li>Use quizzes to detect confusion and re-teach.</li>
-        </ul>
+        <h2>The answer machine</h2>
+        <p>This is how most kids meet AI today: paste the homework, harvest the answer, move on. The research is blunt about where that leads — students who lean on it practice more and <strong>learn less</strong>. It feels like help. It is the opposite.</p>
       </div>
       <div>
-        <h2>Why it can win</h2>
-        <p>Most AI study tools are chat boxes. Most LMS products are file cabinets. ClassroomPanel is the live teaching layer between them.</p>
+        <h2>The tutor that makes them work</h2>
+        <p>ClassroomPanel is built the other way. Before the board explains, your kid <strong>commits to a prediction</strong>. After it explains, they <strong>say it back in their own words</strong>, then take a quick check. The tutor never hands over the answer to graded work — it teaches toward your kid finding it. That difference is the whole product.</p>
       </div>
     </section>
 
     <section>
-      <h2>Rendering strategy</h2>
-      <p>The model should not freehand everything. It should plan lessons into a structured visual DSL that our app renders safely and beautifully.</p>
-      <ul>
-        <li><code>graph</code> for math/function plots</li>
-        <li><code>diagram</code> for labeled concepts</li>
-        <li><code>simulation</code> for step-by-step interaction</li>
-        <li><code>quiz</code> for checks and feedback</li>
-        <li><code>notes</code> for concise explanations</li>
-      </ul>
+      <h2>Your curriculum, not a feed</h2>
+      <p>You choose the books. Upload the textbook, chapter, or syllabus <strong>your family</strong> is already using — even an 875-page textbook — and it becomes a living course: units, lessons, one board at a time. Progress is gated on <strong>demonstrated mastery</strong>, not on scrolling to the bottom, and concepts come back for review right when they’re about to fade. That spaced return trip is one of the strongest results in learning science, and it’s exactly what a one-off chat can never do.</p>
     </section>
 
     <section>
-      <h2>Build plan</h2>
+      <h2>Proof of work</h2>
+      <p>Every prediction your kid commits to, every explanation in their own words, every quiz answered and concept mastered — and kept weeks later — is written into a <strong>learner record your family owns</strong>. Export it as a file. Bring it back. Move it to another computer, or another tutor entirely. It is evidence that the hours went in and the mastery came out — not a chat log that evaporates, and not a report card locked inside some company’s account system.</p>
+      <span class="pill">Mastery, concept by concept</span>
+      <span class="pill">Spaced review, scheduled by the record</span>
+      <span class="pill">Export it, own it, take it anywhere</span>
+    </section>
+
+    <section class="grid">
+      <div>
+        <h2>Open source, parents in control</h2>
+        <p>The entire learning product is <strong>open source (AGPL-3.0)</strong>. You can read every rule the tutor follows — including the ones that refuse to dump answers — or have someone you trust audit them. Run it on your own machine if you want. For software your children learn from, “trust us” isn’t good enough; <strong>inspectable</strong> is the standard.</p>
+      </div>
+      <div>
+        <h2>Your key, your data</h2>
+        <p>No accounts. Nothing stored on anyone’s servers. Lessons run on a <strong>model API key you bring</strong> — you fund the AI directly and can cut it off any time. Your kid’s record lives in your browser and in the files you export. A built-in counselor watches for struggle and keeps <strong>you</strong> in the loop, because the adult in a kid’s learning should be a parent, not a platform.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>What a session looks like</h2>
       <ol class="timeline">
-        <li><strong>Prototype the board:</strong> static landing page + one polished interactive lesson demo.</li>
-        <li><strong>Define the lesson schema:</strong> JSON blocks for graphs, diagrams, cards, checks, and state transitions.</li>
-        <li><strong>Add the tutor loop:</strong> student prompt → lesson plan → rendered board → quiz → adaptation.</li>
-        <li><strong>Support uploads:</strong> PDF/text ingestion that turns source material into a board lesson.</li>
-        <li><strong>Save/share sessions:</strong> students can resume panels and send them to classmates/parents/tutors.</li>
+        <li><strong>Ask, or pick the next lesson</strong> from the course built out of your own curriculum.</li>
+        <li><strong>The board draws the lesson</strong> — explanation, live graph, diagram, simulation, or picture.</li>
+        <li><strong>Your kid does the work:</strong> predict first, say it back, then the quick check.</li>
+        <li><strong>The record remembers</strong> what stuck, what didn’t, and schedules the return visit.</li>
+        <li><strong>You stay in the loop</strong> — the counselor and the record show real progress, not screen time.</li>
       </ol>
+      <a class="cta primary" href="/studio">Open the learning terminal</a>
+      <a class="cta secondary" href="https://github.com/rowant-labs/classroompanel">Read the code on GitHub</a>
     </section>
   </main>
 </body>

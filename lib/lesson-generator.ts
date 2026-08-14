@@ -1,7 +1,6 @@
 import { generateText } from 'ai';
 import type { Lesson } from './lesson-schema';
-import { lessonSchema } from './lesson-schema';
-import { findSampleLesson } from './sample-lessons';
+import { lessonSchema, lessonBlockSchema, boardMarkSchema, physicsVectorSchema } from './lesson-schema';
 import { getRoutedModels } from './model-router';
 import type { ProviderKeys } from './provider-keys';
 
@@ -43,7 +42,7 @@ const schemaGuide = `JSON shape:
 }
 Use 4 to 8 blocks total. Include at least one visual block: sketch, simulation, freeBody, equation, or graph. Coordinates must be numbers from 0 to 100.`;
 
-function parseLessonJson(text: string): Lesson {
+export function parseLessonJson(text: string): Lesson {
   const trimmed = text.trim();
   const withoutFence = trimmed
     .replace(/^```(?:json)?\s*/i, '')
@@ -56,7 +55,77 @@ function parseLessonJson(text: string): Lesson {
     throw new Error('Model did not return a JSON object.');
   }
 
-  return lessonSchema.parse(normalizeLessonCandidate(JSON.parse(withoutFence.slice(start, end + 1))));
+  const candidate = normalizeLessonCandidate(JSON.parse(withoutFence.slice(start, end + 1)));
+  const direct = lessonSchema.safeParse(candidate);
+  if (direct.success) return direct.data;
+  return salvageLesson(candidate, direct.error);
+}
+
+// Gemini (and occasionally other providers without a strict output grammar)
+// returns lessons that are MOSTLY right — one bad enum value or mistyped field
+// in one block. Failing the whole lesson over that throws away a good
+// generation, so we salvage: drop invalid sub-items, then invalid blocks, and
+// keep the lesson if what survives is still a teachable board.
+function salvageLesson(candidate: unknown, originalError: unknown): Lesson {
+  if (!candidate || typeof candidate !== 'object' || !Array.isArray((candidate as Record<string, unknown>).blocks)) {
+    throw originalError;
+  }
+  const lesson = candidate as Record<string, unknown> & { blocks: unknown[] };
+  const kept: Lesson['blocks'] = [];
+  const repaired: string[] = [];
+  const dropped: string[] = [];
+
+  for (const rawBlock of lesson.blocks) {
+    const type = rawBlock && typeof rawBlock === 'object' ? String((rawBlock as Record<string, unknown>).type) : 'unknown';
+    const direct = lessonBlockSchema.safeParse(rawBlock);
+    if (direct.success) {
+      kept.push(direct.data);
+      continue;
+    }
+    const retry = lessonBlockSchema.safeParse(repairBlockItems(rawBlock));
+    if (retry.success) {
+      kept.push(retry.data);
+      repaired.push(type);
+      continue;
+    }
+    dropped.push(type);
+  }
+
+  const salvaged = lessonSchema.safeParse({ ...lesson, blocks: kept });
+  if (!salvaged.success) throw originalError;
+  console.warn(`[lesson] salvaged generation: repaired [${repaired.join(', ') || 'none'}], dropped [${dropped.join(', ') || 'none'}], kept ${kept.length} blocks`);
+  return salvaged.data;
+}
+
+// Strip invalid sub-items (marks, forces, nodes, string lists) so a block with
+// one bad item can still pass its own schema minimums.
+function repairBlockItems(rawBlock: unknown): unknown {
+  if (!rawBlock || typeof rawBlock !== 'object') return rawBlock;
+  const block = { ...(rawBlock as Record<string, unknown>) };
+  const validMarks = (marks: unknown) => (Array.isArray(marks) ? marks.filter((mark) => boardMarkSchema.safeParse(mark).success) : marks);
+
+  if (block.type === 'sketch') block.marks = validMarks(block.marks);
+  if (block.type === 'simulation' && Array.isArray(block.frames)) {
+    block.frames = block.frames
+      .map((frame) => (frame && typeof frame === 'object' ? { ...(frame as Record<string, unknown>), marks: validMarks((frame as Record<string, unknown>).marks) } : frame))
+      .filter((frame) => Array.isArray((frame as Record<string, unknown>)?.marks) && ((frame as Record<string, unknown>).marks as unknown[]).length >= 2);
+  }
+  if (block.type === 'freeBody' && Array.isArray(block.forces)) {
+    block.forces = block.forces.filter((force) => physicsVectorSchema.safeParse(force).success);
+  }
+  if (block.type === 'diagram' && Array.isArray(block.nodes)) {
+    block.nodes = block.nodes.filter((node) => node && typeof node === 'object' && typeof (node as Record<string, unknown>).label === 'string');
+  }
+  if (block.type === 'steps' && Array.isArray(block.steps)) {
+    block.steps = block.steps.filter((step) => typeof step === 'string' && step.trim());
+  }
+  if (block.type === 'equation' && Array.isArray(block.givens)) {
+    block.givens = block.givens.filter((given) => typeof given === 'string' && given.trim());
+  }
+  if ((block.type === 'quiz' || block.type === 'predict') && Array.isArray(block.choices)) {
+    block.choices = block.choices.filter((choice) => typeof choice === 'string');
+  }
+  return block;
 }
 
 function clamp(value: unknown, min: number, max: number) {
@@ -155,9 +224,16 @@ function normalizeLessonCandidate(candidate: unknown) {
   return lesson;
 }
 
-export async function generateLesson(topic: string, context: LessonContext = {}, keys?: ProviderKeys): Promise<{ lesson: Lesson; mode: 'ai' | 'demo'; note?: string; model?: string }> {
+export type GenerateLessonResult =
+  | { mode: 'ai'; lesson: Lesson; model: string }
+  // No provider key anywhere (server env or BYOK) — the client should ask for one.
+  | { mode: 'unconfigured'; note: string }
+  // Keys exist but every attempt failed — an honest error, never a canned lesson.
+  | { mode: 'failed'; note: string };
+
+export async function generateLesson(topic: string, context: LessonContext = {}, keys?: ProviderKeys): Promise<GenerateLessonResult> {
   const trimmed = topic.trim().slice(0, 2000);
-  if (!trimmed) return { lesson: findSampleLesson('derivative'), mode: 'demo', note: 'No topic supplied, showing the default demo lesson.' };
+  if (!trimmed) return { mode: 'failed', note: 'No topic supplied.' };
 
   const models = [
     ...getRoutedModels('blackboard', keys),
@@ -168,9 +244,8 @@ export async function generateLesson(topic: string, context: LessonContext = {},
 
   if (models.length === 0) {
     return {
-      lesson: findSampleLesson(trimmed),
-      mode: 'demo',
-      note: 'Demo mode: add your own model key in the tutor panel — or set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY on the server — to generate new lessons on the fly.',
+      mode: 'unconfigured',
+      note: 'Add your own model key in the tutor panel — or set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY on the server — to draw live lessons.',
     };
   }
 
@@ -185,7 +260,7 @@ export async function generateLesson(topic: string, context: LessonContext = {},
 
 ${buildLessonPrompt(trimmed, context)}`,
       });
-      return { lesson: parseLessonJson(result.text), mode: 'ai', model: `${routed.provider}:${routed.modelId}` };
+      return { mode: 'ai', lesson: parseLessonJson(result.text), model: `${routed.provider}:${routed.modelId}` };
     } catch (error) {
       failures.push(`${routed.provider}:${routed.modelId}`);
       console.warn(`Lesson generation failed with ${routed.provider}:${routed.modelId}`, error);
@@ -193,8 +268,7 @@ ${buildLessonPrompt(trimmed, context)}`,
   }
 
   return {
-    lesson: findSampleLesson(trimmed),
-    mode: 'demo',
-    note: `AI generation failed for ${failures.join(', ')}, so ClassroomPanel fell back to a built-in lesson.`,
+    mode: 'failed',
+    note: `Lesson generation failed (${failures.join(', ')}). Check your key and try again.`,
   };
 }

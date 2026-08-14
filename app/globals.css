@@ -133,14 +133,15 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   min-width: 0;
 }
 
+/* The frame is a cool slate ledge, not wood grain — it recedes so the green
+   board and its gold chalk stay the warmest things on screen. */
 .board-frame {
   min-width: 0;
   padding: 14px;
-  border: 1px solid rgba(247, 221, 161, .36);
+  border: 1px solid rgba(154, 181, 209, .22);
   border-radius: 14px;
-  background:
-    linear-gradient(90deg, #5b361d, #8a5b2e 16%, #5d371d 34%, #926236 52%, #4c2d18 72%, #7a4e2a);
-  box-shadow: 0 26px 80px rgba(0, 0, 0, .38), inset 0 0 0 1px rgba(255, 255, 255, .14);
+  background: linear-gradient(180deg, #151e2c, #0d141f);
+  box-shadow: 0 26px 80px rgba(0, 0, 0, .42), inset 0 0 0 1px rgba(255, 255, 255, .05);
 }
 
 .board-rail {
@@ -1507,10 +1508,12 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   display: flex;
   flex-direction: column;
   padding: 14px 16px 18px;
+  /* Same deep slate-navy family as the landing page, so /studio feels like
+     stepping through the landing rather than into a different product. */
   background:
-    linear-gradient(135deg, rgba(29, 19, 9, .34), transparent 32%),
-    radial-gradient(circle at 78% 12%, rgba(194, 154, 86, .18), transparent 28%),
-    #111713;
+    radial-gradient(circle at 18% 0%, rgba(110, 231, 249, .06), transparent 32%),
+    radial-gradient(circle at 82% 8%, rgba(167, 139, 250, .06), transparent 30%),
+    #0a101b;
   color: #f4eeda;
 }
 
@@ -1804,6 +1807,14 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   line-height: 1.5;
   max-width: none;
 }
+
+.byok-note a {
+  color: #f0d98d;
+  text-decoration: underline dotted rgba(240, 217, 141, .5);
+  text-underline-offset: 3px;
+}
+
+.byok-note a:hover { text-decoration-style: solid; }
 
 .byok-row {
   display: grid;

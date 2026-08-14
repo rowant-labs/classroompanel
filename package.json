@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/schema.test.ts && tsx tests/expression.test.ts && tsx tests/board-image.test.ts && tsx tests/curriculum-ingest.test.ts && tsx tests/learner-record.test.ts && tsx tests/byok.test.ts"
+    "test": "tsx tests/schema.test.ts && tsx tests/expression.test.ts && tsx tests/board-image.test.ts && tsx tests/curriculum-ingest.test.ts && tsx tests/learner-record.test.ts && tsx tests/byok.test.ts && tsx tests/salvage.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.79",
