@@ -86,6 +86,22 @@ Adaptive teaching:
 - If they missed it, redraw the SAME idea a different way — new analogy, new visual — not the same board again.
 - Keep ids short-kebab-case and unique within the lesson. 4-8 blocks total.`;
 
+// Appended for providers without a strict output grammar (Google, OpenAI):
+// they generate good lesson CONTENT but scatter freeform sketch marks — the
+// observed failure is overlapping, clipped, arrow-soup sketches. Steer them
+// toward the block types that render well regardless of spatial skill.
+export const looseModelVisualAddendum = `
+
+Board-drawing discipline (important for you specifically):
+- Freeform sketch marks are hard to place well. Before reaching for a sketch block, check
+  whether a graph, freeBody, equation, steps, or ONE image block teaches it better — prefer those.
+- For physical objects and scenes (machines, ramps, anatomy, geography, apparatus), use ONE
+  image block with a clear prompt instead of trying to assemble the object from sketch marks.
+- If you do draw a sketch: at most 6 marks, laid out on a clean grid with at least 20 x-units
+  or 14 y-units between mark centers — marks must never overlap or touch. Keep each mark's
+  text under 18 characters. Arrows go between marks (x,y at the source, toX,toY at the target),
+  never floating in space.`;
+
 export function buildLessonPrompt(request: string, context: LessonContext = {}): string {
   const parts: string[] = [];
 

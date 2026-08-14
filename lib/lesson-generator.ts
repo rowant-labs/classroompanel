@@ -4,7 +4,7 @@ import { lessonSchema, lessonBlockSchema, boardMarkSchema, physicsVectorSchema }
 import { getRoutedModels } from './model-router';
 import type { ProviderKeys } from './provider-keys';
 
-import { tutorSystemPrompt, buildLessonPrompt, type LessonContext } from './tutor-prompt';
+import { tutorSystemPrompt, buildLessonPrompt, looseModelVisualAddendum, type LessonContext } from './tutor-prompt';
 
 const system = `${tutorSystemPrompt}
 
@@ -255,7 +255,7 @@ export async function generateLesson(topic: string, context: LessonContext = {},
     try {
       const result = await generateText({
         model: routed.model,
-        system,
+        system: routed.provider === 'anthropic' ? system : system + looseModelVisualAddendum,
         prompt: `${schemaGuide}
 
 ${buildLessonPrompt(trimmed, context)}`,

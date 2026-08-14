@@ -13,26 +13,30 @@ export type RoutedModel = {
   role: ModelRole;
 };
 
+// Model ids verified 2026-08-14 (Anthropic docs; Gemini 3.6 Flash GA 2026-07-21;
+// GPT-5.6 family GA 2026-07-09). Order is preference within a provider-keyed
+// pool; the router skips any provider without a key. Older-generation entries
+// stay as deep fallbacks. Self-hosters can override via CLASSROOMPANEL_*_MODEL.
 const defaultModels: Record<ModelRole, string[]> = {
   tutor: [
-    'anthropic:claude-opus-4-8',
-    'anthropic:claude-sonnet-4-6',
+    'anthropic:claude-opus-5',
+    'anthropic:claude-sonnet-5',
+    'google:gemini-3.6-flash',
     'google:gemini-2.5-pro',
-    'google:gemini-2.5-flash',
-    'openai:gpt-5.1',
+    'openai:gpt-5.6-sol',
   ],
   blackboard: [
-    'anthropic:claude-sonnet-4-6',
+    'anthropic:claude-sonnet-5',
+    'google:gemini-3.6-flash',
+    'anthropic:claude-opus-5',
     'google:gemini-2.5-flash',
-    'anthropic:claude-opus-4-8',
-    'google:gemini-2.5-pro',
-    'openai:gpt-5.1',
+    'openai:gpt-5.6-terra',
   ],
   fast: [
     'anthropic:claude-haiku-4-5',
     'google:gemini-2.5-flash',
-    'anthropic:claude-sonnet-4-6',
-    'openai:gpt-5-mini',
+    'openai:gpt-5.6-luna',
+    'anthropic:claude-sonnet-5',
   ],
 };
 

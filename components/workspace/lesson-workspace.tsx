@@ -157,6 +157,8 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   // Whether ANY provider is live (server env key or a BYOK key). false gates
   // generation behind the key panel; null = not yet known, let the server decide.
   const [canGenerate, setCanGenerate] = useState<boolean | null>(null);
+  // True once the CURRENT stream has produced content (reset on each submit).
+  const [streamFresh, setStreamFresh] = useState(false);
 
   // What the in-flight generation is about (topic shown in history, course bookkeeping)
   const pendingRef = useRef<{ topic: string; context: LessonContext; courseLessonId?: string; conceptKey?: string } | null>(null);
@@ -380,6 +382,7 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     setDoStates({});
     setStatusNote('The tutor is drawing…');
     pendingRef.current = { topic: spoken, context, courseLessonId: options?.courseLessonId, conceptKey: options?.conceptKey };
+    setStreamFresh(false);
     submit({ request, context });
   }, [isDrawing, submit, canGenerate]);
 
@@ -527,13 +530,23 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   // ---- quiz adaptive loop ----------------------------------------------------
   const activeBoard = boards[activeBoardIndex] ?? null;
   const displayedLesson: LessonView | null = useMemo(() => {
-    if (isStreaming) {
+    // Only trust the stream once THIS submission has produced chunks —
+    // useObject keeps the previous stream's final object until new data
+    // arrives, which used to flash an unrelated old board at draw start.
+    if (isStreaming && streamFresh) {
       const view = toLessonView(streamingLesson as Partial<Lesson> | undefined);
       if (view) return view;
     }
     if (activeBoard) return toLessonView(activeBoard.lesson);
+    // First-ever board is being drawn: show the drawing state, not the
+    // showcase lesson the student didn't ask for.
+    if (isDrawing) return null;
     return toLessonView(initialLesson);
-  }, [isStreaming, streamingLesson, activeBoard, initialLesson]);
+  }, [isStreaming, streamFresh, streamingLesson, activeBoard, initialLesson, isDrawing]);
+
+  useEffect(() => {
+    if (streamingLesson) setStreamFresh(true);
+  }, [streamingLesson]);
 
   const activeQuiz = useMemo(() => displayedLesson?.blocks.find((block) => block.type === 'quiz'), [displayedLesson]);
 
@@ -1277,6 +1290,12 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
             </nav>
           )}
 
+          {!displayedLesson && isDrawing && (
+            <div className="board-drawing-empty" role="status">
+              <span className="drawing-chalk" aria-hidden="true" />
+              <p>{pendingRef.current?.topic ? `Drawing “${pendingRef.current.topic}”…` : 'The tutor is drawing…'}</p>
+            </div>
+          )}
           {displayedLesson && (
             <LessonRenderer
               lesson={displayedLesson}

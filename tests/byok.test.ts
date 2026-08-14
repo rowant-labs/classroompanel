@@ -51,7 +51,7 @@ assert.deepEqual(getImageModelCandidates(), [], 'no keys: no image models');
   const routed = getRoutedModels('tutor', { anthropic: 'sk-ant-test' });
   assert.ok(routed.length > 0, 'an Anthropic BYOK key routes tutor models');
   assert.ok(routed.every((entry) => entry.provider === 'anthropic'), 'only the keyed provider routes');
-  assert.equal(routed[0].modelId, 'claude-opus-4-8', 'preference order is preserved');
+  assert.equal(routed[0].modelId, 'claude-opus-5', 'preference order is preserved');
 }
 
 {

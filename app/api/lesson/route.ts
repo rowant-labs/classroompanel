@@ -2,7 +2,7 @@ import { streamObject } from 'ai';
 import { lessonStreamSchema } from '@/lib/lesson-schema';
 import { getRoutedModels } from '@/lib/model-router';
 import { keysFromRequest } from '@/lib/provider-keys';
-import { tutorSystemPrompt, buildLessonPrompt, type LessonContext } from '@/lib/tutor-prompt';
+import { tutorSystemPrompt, buildLessonPrompt, looseModelVisualAddendum, type LessonContext } from '@/lib/tutor-prompt';
 
 export const runtime = 'nodejs';
 export const maxDuration = 180;
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   const result = streamObject({
     model: routed.model,
     schema: lessonStreamSchema,
-    system: tutorSystemPrompt,
+    system: routed.provider === 'anthropic' ? tutorSystemPrompt : tutorSystemPrompt + looseModelVisualAddendum,
     prompt: buildLessonPrompt(studentRequest, context),
     // The lesson schema's block union is too complex for Anthropic's strict
     // output grammar; tool-based JSON generation handles it fine.
