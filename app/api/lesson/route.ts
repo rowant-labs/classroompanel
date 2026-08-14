@@ -32,6 +32,9 @@ export async function POST(request: Request) {
   const routed = models[0];
   const result = streamObject({
     model: routed.model,
+    // A hung upstream should error (so the client falls back) rather than
+    // holding the stream open until the route's maxDuration kills it.
+    abortSignal: AbortSignal.timeout(150_000),
     schema: lessonStreamSchema,
     system: routed.provider === 'anthropic' ? tutorSystemPrompt : tutorSystemPrompt + looseModelVisualAddendum,
     prompt: buildLessonPrompt(studentRequest, context),

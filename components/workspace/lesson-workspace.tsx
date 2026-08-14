@@ -30,6 +30,7 @@ import {
   type MasteryLevel,
 } from '@/lib/learner-record';
 import { byokFetch, byokHeaders, loadByokKeys, saveByokKeys } from '@/lib/byok-client';
+import { salvageStreamedLesson } from '@/lib/lesson-salvage';
 import { PROVIDERS, type Provider, type ProviderKeys } from '@/lib/provider-keys';
 
 type ChatMessage = { id: string; role: 'student' | 'tutor'; text: string };
@@ -99,6 +100,10 @@ const MAX_ATTEMPTS = 40;
 // Auto-refresh the counselor once this many new events (attempts or boards)
 // have happened since the last report.
 const COUNSELOR_REFRESH_EVENTS = 2;
+// A stream that produces no new content for this long is considered hung —
+// abort it and recover (salvage the partial or redraw the sturdy way).
+// Generous because thinking models legitimately pause before/mid output.
+const STREAM_STALL_MS = 45_000;
 
 const providerLabels: Record<Provider, string> = {
   anthropic: 'Anthropic',
@@ -344,29 +349,68 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   }, [commitBoard]);
 
   // ---- streaming generation ------------------------------------------------
-  const { object: streamingLesson, submit, isLoading: isStreaming } = useObject({
+  // Watchdog state: the latest streamed partial, when it last advanced, and
+  // whether the watchdog already took recovery over (so onFinish/onError from
+  // the aborted stream don't double-recover).
+  const streamingLessonRef = useRef<unknown>(null);
+  const streamProgressRef = useRef(0);
+  const watchdogTookOverRef = useRef(false);
+
+  const { object: streamingLesson, submit, stop: stopStream, isLoading: isStreaming } = useObject({
     api: '/api/lesson',
     schema: lessonSchema,
     // Reads BYOK keys from storage at request time, so a just-saved key
     // applies to the very next board.
     fetch: byokFetch,
     onFinish: ({ object }) => {
+      if (watchdogTookOverRef.current) return;
       const pending = pendingRef.current;
       if (object) {
         commitBoard(object);
         setStatusNote('Board drawn live. Play with it.');
-      } else if (pending) {
-        // Stream finished but didn't validate — recover through the sturdy path
-        fallbackGenerate(pending.topic, pending.context);
+      } else {
+        // Stream finished but didn't validate wholesale. Salvage what was
+        // already drawn (drop the bad block) before paying for a full redraw.
+        const salvaged = salvageStreamedLesson(streamingLessonRef.current);
+        if (salvaged) {
+          commitBoard(salvaged);
+          setStatusNote('Board drawn live. Play with it.');
+        } else if (pending) {
+          fallbackGenerate(pending.topic, pending.context);
+        }
       }
     },
     onError: () => {
+      if (watchdogTookOverRef.current) return;
       const pending = pendingRef.current;
       if (pending) fallbackGenerate(pending.topic, pending.context);
     },
   });
 
   const isDrawing = isStreaming || isFallbackLoading;
+
+  // Stall watchdog: a hung stream used to leave "the tutor is drawing…"
+  // forever. If no new content arrives for STREAM_STALL_MS, abort and recover.
+  useEffect(() => {
+    if (!isStreaming) return;
+    const timer = window.setInterval(() => {
+      if (Date.now() - streamProgressRef.current < STREAM_STALL_MS) return;
+      watchdogTookOverRef.current = true;
+      stopStream();
+      const pending = pendingRef.current;
+      const salvaged = salvageStreamedLesson(streamingLessonRef.current);
+      if (salvaged) {
+        commitBoard(salvaged);
+        setStatusNote('The stream stalled near the end — finished the board from what was drawn.');
+      } else if (pending) {
+        setStatusNote('The model stalled mid-draw — redrawing the sturdy way…');
+        fallbackGenerate(pending.topic, pending.context);
+      } else {
+        setStatusNote('The model stalled — try drawing again.');
+      }
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [isStreaming, stopStream, commitBoard, fallbackGenerate]);
 
   const teach = useCallback((request: string, context: LessonContext, options?: { spokenAs?: string; courseLessonId?: string; conceptKey?: string }) => {
     if (isDrawing) return;
@@ -383,6 +427,9 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
     setStatusNote('The tutor is drawing…');
     pendingRef.current = { topic: spoken, context, courseLessonId: options?.courseLessonId, conceptKey: options?.conceptKey };
     setStreamFresh(false);
+    watchdogTookOverRef.current = false;
+    streamingLessonRef.current = null;
+    streamProgressRef.current = Date.now();
     submit({ request, context });
   }, [isDrawing, submit, canGenerate]);
 
@@ -545,7 +592,11 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
   }, [isStreaming, streamFresh, streamingLesson, activeBoard, initialLesson, isDrawing]);
 
   useEffect(() => {
-    if (streamingLesson) setStreamFresh(true);
+    if (streamingLesson) {
+      setStreamFresh(true);
+      streamingLessonRef.current = streamingLesson;
+      streamProgressRef.current = Date.now();
+    }
   }, [streamingLesson]);
 
   const activeQuiz = useMemo(() => displayedLesson?.blocks.find((block) => block.type === 'quiz'), [displayedLesson]);

@@ -5,6 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { parseLessonJson } from '../lib/lesson-generator';
+import { salvageStreamedLesson } from '../lib/lesson-salvage';
 
 const goodMark = (id: string, x: number) => ({ id, kind: 'node', text: 'part', x, y: 30, w: 20, h: 10 });
 
@@ -52,6 +53,22 @@ const mostlyGood = {
 
 {
   assert.throws(() => parseLessonJson('The model wrote prose instead of JSON.'));
+}
+
+{
+  // Streamed-partial rescue: a finished-but-invalid stream salvages client-side…
+  const lesson = salvageStreamedLesson(mostlyGood);
+  assert.ok(lesson, 'streamed lesson with one bad block salvages');
+  assert.equal(lesson!.blocks.length, 4);
+}
+
+{
+  // …but a partial that stalled before its quiz arrived is not worth
+  // committing — the do-loop is the product.
+  const noQuiz = { ...mostlyGood, blocks: mostlyGood.blocks.filter((block) => (block as { type?: string }).type !== 'quiz') };
+  assert.equal(salvageStreamedLesson(noQuiz), null, 'quiz-less partial is rejected');
+  assert.equal(salvageStreamedLesson(undefined), null);
+  assert.equal(salvageStreamedLesson({ title: 'no blocks yet' }), null);
 }
 
 console.log('Lesson salvage: all assertions passed.');
