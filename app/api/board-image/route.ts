@@ -1,4 +1,5 @@
 import { mkdir, stat, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import {
   generateBoardImage,
@@ -11,7 +12,12 @@ import { keysFromRequest, type ProviderKeys } from '@/lib/provider-keys';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-const CACHE_DIR = path.join(process.cwd(), '.cache', 'board-images');
+// Local/self-hosted runs persist the cache in-repo; serverless filesystems
+// (Vercel) are read-only except the OS temp dir. Temp is per-instance and
+// ephemeral — an evicted image just regenerates on the next request.
+const CACHE_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'classroompanel-board-images')
+  : path.join(process.cwd(), '.cache', 'board-images');
 const MAX_PROMPT_CHARS = 800;
 
 // One generation per cache key at a time — a board rendered twice during

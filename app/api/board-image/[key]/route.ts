@@ -1,9 +1,13 @@
 import { readFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 export const runtime = 'nodejs';
 
-const CACHE_DIR = path.join(process.cwd(), '.cache', 'board-images');
+// Must mirror the POST route's cache location (serverless → OS temp dir).
+const CACHE_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'classroompanel-board-images')
+  : path.join(process.cwd(), '.cache', 'board-images');
 const KEY_PATTERN = /^[a-f0-9]{24,64}$/;
 
 export async function GET(_request: Request, { params }: { params: Promise<{ key: string }> }) {
