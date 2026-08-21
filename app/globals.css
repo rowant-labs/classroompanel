@@ -189,6 +189,32 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
   to { transform: scaleX(1); opacity: 1; }
 }
 
+/* The blank board: same green slate as the drawing state, but at rest. */
+.board-blank {
+  gap: 10px;
+  min-height: min(72vh, 760px);
+}
+
+.board-blank-glyph {
+  font-size: 2.2rem;
+  color: rgba(240, 217, 141, .7);
+  transform: rotate(-8deg);
+}
+
+.board-blank p {
+  font-size: clamp(1.3rem, 2vw, 1.8rem);
+  font-weight: 800;
+  color: #fff8df;
+}
+
+.board-blank small {
+  max-width: 420px;
+  text-align: center;
+  color: rgba(244, 238, 218, .66);
+  font-size: .95rem;
+  line-height: 1.5;
+}
+
 .drawing-light {
   display: inline-flex;
   align-items: center;

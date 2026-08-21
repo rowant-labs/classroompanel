@@ -5,12 +5,12 @@ description: Drive ClassroomPanel end-to-end in a headless browser to verify cha
 
 # Verifying ClassroomPanel
 
-The workspace lives at **`/studio`** (`/` is a landing page, `/demo` renders a bare board with no state). All learner state is client-side localStorage — no accounts, no API keys needed for the initial demo board.
+The workspace lives at **`/panel`** (`/studio` 308-redirects there; `/` is a landing page, `/demo` renders the fixed sample board with no state). All learner state is client-side localStorage. The panel starts EMPTY — no sample board — so exercising do-blocks needs either a live key or session state injected via localStorage (below); `/demo` is the keyless way to eyeball the renderer.
 
 ## Launch
 
 ```bash
-npm run dev -- --port 3789   # ready in ~2s; wait for HTTP 200 on /studio
+npm run dev -- --port 3789   # ready in ~2s; wait for HTTP 200 on /panel
 ```
 
 Checks that are NOT verification but should stay green: `npm run typecheck`, `npm test`, `npm run build`.
@@ -33,7 +33,7 @@ Any app state can be staged without AI generation by writing localStorage and re
 
 ## Flows worth exercising after a change
 
-1. **Do-block loop** (initial demo board, no state needed): commit a predict choice → reveal appears, buttons lock; type ≥20 chars in say-it-back → compare → **keyless: self-mark buttons; with a live key: "The tutor is reading your answer…" → LLM grade via `/api/selfexplain` (per-keypoint ✓/○ + gold feedback line, no self-mark buttons)**; answer quiz → record in localStorage gains attempts with kinds `[predict, selfExplain, quiz]`; only the quiz moves concept counters (a graded say-it-back records correct=covered but is still practice).
+1. **Do-block loop** (inject a session with a board first — the panel starts blank): commit a predict choice → reveal appears, buttons lock; type ≥20 chars in say-it-back → compare → **keyless: self-mark buttons; with a live key: "The tutor is reading your answer…" → LLM grade via `/api/selfexplain` (per-keypoint ✓/○ + gold feedback line, no self-mark buttons)**; answer quiz → record in localStorage gains attempts with kinds `[predict, selfExplain, quiz]`; only the quiz moves concept counters (a graded say-it-back records correct=covered but is still practice).
 2. **Mastery honesty**: wrong predict / "missed some" self-mark must never change `correctCount`/`incorrectCount`/`streak`/`stage`/`dueAt`.
 3. **Answered persistence**: an answered board's quiz shows its result after board-switch and reload, and re-clicking records nothing.
 4. **Record safety**: unreadable record → quarantined verbatim + status note, never overwritten; export/import round-trips and restores the embedded course.

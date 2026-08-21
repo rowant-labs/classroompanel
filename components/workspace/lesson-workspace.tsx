@@ -131,7 +131,7 @@ function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${idCounter}`;
 }
 
-export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
+export function LessonWorkspace({ initialLesson }: { initialLesson?: Lesson }) {
   const [hydrated, setHydrated] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [boards, setBoards] = useState<BoardRecord[]>([]);
@@ -590,10 +590,11 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
       if (view) return view;
     }
     if (activeBoard) return toLessonView(activeBoard.lesson);
-    // First-ever board is being drawn: show the drawing state, not the
-    // showcase lesson the student didn't ask for.
+    // No boards yet: show the drawing state while one streams in, otherwise
+    // the empty board (the panel starts blank — nothing the student didn't
+    // ask for). An initialLesson, when provided, seeds a showcase board.
     if (isDrawing) return null;
-    return toLessonView(initialLesson);
+    return initialLesson ? toLessonView(initialLesson) : null;
   }, [isStreaming, streamFresh, streamingLesson, activeBoard, initialLesson, isDrawing]);
 
   useEffect(() => {
@@ -1389,6 +1390,13 @@ export function LessonWorkspace({ initialLesson }: { initialLesson: Lesson }) {
             <div className="board-drawing-empty" role="status">
               <span className="drawing-chalk" aria-hidden="true" />
               <p>{pendingRef.current?.topic ? `Drawing “${pendingRef.current.topic}”…` : 'The tutor is drawing…'}</p>
+            </div>
+          )}
+          {!displayedLesson && !isDrawing && (
+            <div className="board-drawing-empty board-blank">
+              <span className="board-blank-glyph" aria-hidden="true">✎</span>
+              <p>The board is empty.</p>
+              <small>Ask the tutor anything — or upload a curriculum in the Course tab — and watch the lesson draw itself.</small>
             </div>
           )}
           {displayedLesson && (

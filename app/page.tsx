@@ -15,7 +15,7 @@ export default function Home() {
           Sit down and learn anything. Ask a question and watch the board draw the lesson — live graphs you can drag, simulations, worked equations, and quick checks that adapt to your answers. Or upload a curriculum and learn it lesson by lesson.
         </p>
         <div className="hero-actions">
-          <a href="/studio" className="primary">Open the learning terminal</a>
+          <a href="/panel" className="primary">Open the learning terminal</a>
           <a href="/vision.html" className="secondary">Read the product vision</a>
         </div>
       </section>

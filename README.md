@@ -13,7 +13,7 @@ A student should be able to ask, “I don’t understand derivatives,” and wat
 ## Routes
 
 - `/` — landing page
-- `/studio` — interactive blackboard generator MVP
+- `/panel` — the learning terminal (`/studio` redirects here)
 - `/demo` — fixed schema-rendered demo lesson
 - `/vision.html` — early product vision page (the canonical vision is [docs/VISION.md](docs/VISION.md))
 
@@ -36,7 +36,7 @@ Live generation is optional right now, and there are two ways to enable it:
 
 - **Bring your own key (in the browser):** the tutor panel has a "Bring your own key" affordance. A key from any one provider makes lessons generate live (board pictures need Google or OpenAI). The key is saved in the visitor's own browser (localStorage) and attached to each generation request; the server uses it for that one call and never stores or logs it.
 
-Without any key, `/studio` still opens with a built-in showcase board (do-blocks, quiz, and the learner record all work), and asks for a key before drawing anything new — it never passes off a canned lesson as a generated one.
+Without any key, `/panel` opens with an empty board and asks for a key before drawing — it never passes off a canned lesson as a generated one. The fixed sample board lives at `/demo`.
 
 ## Development
 
