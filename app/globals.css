@@ -43,18 +43,42 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 @media (max-width: 850px) { .workspace { grid-template-columns: 1fr; } h1 { letter-spacing: -0.05em; } }
 
 /* --- landing-page vision sections ------------------------------------------ */
+.vision-hero { max-width: 980px; }
+.vision-hero h1 { max-width: 960px; }
 .vision-flow { display: grid; gap: 18px; margin-top: 48px; }
-.vision-card { background: var(--panel); border: 1px solid var(--panel-strong); border-radius: 28px; padding: 28px; box-shadow: 0 24px 70px rgba(0,0,0,.22); backdrop-filter: blur(18px); }
+.vision-card { background: linear-gradient(180deg, rgba(255,255,255,.095), rgba(255,255,255,.065)); border: 1px solid var(--panel-strong); border-radius: 22px; padding: clamp(22px, 3.2vw, 34px); box-shadow: 0 24px 70px rgba(0,0,0,.22); backdrop-filter: blur(18px); }
 .vision-card h2 { font-size: clamp(1.7rem, 3vw, 2.8rem); letter-spacing: -.04em; margin: 0 0 14px; line-height: 1.05; }
+.vision-card h3 { margin: 0; font-size: 1.08rem; line-height: 1.2; }
 .vision-card p { font-size: 1.08rem; max-width: none; }
 .vision-card strong { color: var(--text); }
+.vision-lede { display: grid; grid-template-columns: minmax(260px, .72fr) 1fr; gap: 28px; align-items: start; }
+.vision-lede p { margin: 0; color: var(--text); font-size: clamp(1.15rem, 2vw, 1.45rem); }
 .vision-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
-.vision-pill { display: inline-flex; align-items: center; padding: 9px 12px; border-radius: 999px; background: rgba(110,231,249,.13); color: var(--text); font-weight: 800; margin: 8px 6px 0 0; }
+.vision-pill-row { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.vision-pill { display: inline-flex; align-items: center; padding: 9px 12px; border-radius: 999px; background: rgba(110,231,249,.13); color: var(--text); font-weight: 800; }
+.vision-section-heading { max-width: 860px; margin-bottom: 24px; }
+.vision-section-heading p { margin-bottom: 0; }
+.principle-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.principle { min-height: 230px; display: flex; flex-direction: column; gap: 12px; padding: 18px; border: 1px solid rgba(255,255,255,.12); border-radius: 18px; background: rgba(0,0,0,.16); }
+.principle span { color: var(--accent); font-size: .78rem; font-weight: 900; letter-spacing: .12em; }
+.principle p { margin: 0; color: var(--muted); font-size: .98rem; line-height: 1.5; }
+.vision-future { border-color: rgba(125, 211, 168, .32); }
 .vision-timeline { counter-reset: vstep; list-style: none; padding: 0; margin: 0 0 14px; }
 .vision-timeline li { counter-increment: vstep; margin: 12px 0; padding-left: 46px; position: relative; color: var(--muted); font-size: 1.08rem; line-height: 1.6; }
 .vision-timeline li strong { color: var(--text); }
 .vision-timeline li::before { content: counter(vstep); position: absolute; left: 0; top: 2px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--bg); font-weight: 900; }
-@media (max-width: 760px) { .vision-grid { grid-template-columns: 1fr; } }
+@media (max-width: 980px) { .principle-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .vision-grid, .vision-lede, .principle-grid { grid-template-columns: 1fr; } .principle { min-height: auto; } }
+
+/* --- terms & privacy + site footer ----------------------------------------- */
+.legal-flow .vision-card h2 { font-size: clamp(1.35rem, 2.2vw, 1.9rem); }
+.legal-flow .vision-card p { font-size: 1rem; }
+.legal-shell a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.legal-shell .primary { color: #08111f; text-decoration: none; }
+.legal-shell .secondary { color: var(--text); text-decoration: none; }
+.site-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--panel-strong); color: var(--muted); font-size: .92rem; }
+.site-footer a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+.site-footer a:hover { color: var(--text); }
 .lesson-shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0 72px; }
 .lesson-intro { margin-bottom: 24px; }
 .lesson-intro h1 { max-width: 920px; }

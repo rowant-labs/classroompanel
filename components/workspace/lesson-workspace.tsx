@@ -1058,7 +1058,8 @@ export function LessonWorkspace({ initialLesson }: { initialLesson?: Lesson }) {
                   </div>
                   <p className="byok-note">
                     One key from any provider makes lessons generate live; board pictures need Google or OpenAI.
-                    Keys stay in this browser and travel with each request — the server never stores or logs them.
+                    Keys stay in this browser and travel with each request — the server never stores or logs them.{' '}
+                    <a href="/terms" target="_blank" rel="noreferrer">Terms &amp; Privacy</a>
                   </p>
                   <p className="byok-note">
                     No key yet? Create one at{' '}
