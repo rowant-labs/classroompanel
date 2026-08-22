@@ -15,7 +15,6 @@ A student should be able to ask, “I don’t understand derivatives,” and wat
 - `/` — landing page
 - `/panel` — the learning terminal (`/studio` redirects here)
 - `/demo` — fixed schema-rendered demo lesson
-- `/vision.html` — early product vision page (the canonical vision is [docs/VISION.md](docs/VISION.md))
 
 ## Current wedge
 

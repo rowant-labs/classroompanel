@@ -41,6 +41,20 @@ p { color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); line-height: 1
 .step { display: flex; gap: 8px; align-items: center; color: var(--muted); padding: 10px 12px; border-radius: 999px; background: rgba(255,255,255,.07); }
 .step span { color: var(--bg); background: var(--accent); width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: .8rem; }
 @media (max-width: 850px) { .workspace { grid-template-columns: 1fr; } h1 { letter-spacing: -0.05em; } }
+
+/* --- landing-page vision sections ------------------------------------------ */
+.vision-flow { display: grid; gap: 18px; margin-top: 48px; }
+.vision-card { background: var(--panel); border: 1px solid var(--panel-strong); border-radius: 28px; padding: 28px; box-shadow: 0 24px 70px rgba(0,0,0,.22); backdrop-filter: blur(18px); }
+.vision-card h2 { font-size: clamp(1.7rem, 3vw, 2.8rem); letter-spacing: -.04em; margin: 0 0 14px; line-height: 1.05; }
+.vision-card p { font-size: 1.08rem; max-width: none; }
+.vision-card strong { color: var(--text); }
+.vision-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.vision-pill { display: inline-flex; align-items: center; padding: 9px 12px; border-radius: 999px; background: rgba(110,231,249,.13); color: var(--text); font-weight: 800; margin: 8px 6px 0 0; }
+.vision-timeline { counter-reset: vstep; list-style: none; padding: 0; margin: 0 0 14px; }
+.vision-timeline li { counter-increment: vstep; margin: 12px 0; padding-left: 46px; position: relative; color: var(--muted); font-size: 1.08rem; line-height: 1.6; }
+.vision-timeline li strong { color: var(--text); }
+.vision-timeline li::before { content: counter(vstep); position: absolute; left: 0; top: 2px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--bg); font-weight: 900; }
+@media (max-width: 760px) { .vision-grid { grid-template-columns: 1fr; } }
 .lesson-shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0 72px; }
 .lesson-intro { margin-bottom: 24px; }
 .lesson-intro h1 { max-width: 920px; }
