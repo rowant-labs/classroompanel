@@ -116,7 +116,7 @@ export default function TermsPage() {
           <p>
             We may update these terms; the change lands in the public git history, and continued use of the
             Service after a change means you accept it. These terms are governed by the laws of the United
-            States and the state of the maintainer’s residence, without regard to conflict-of-law rules. If any
+            States and the State of Texas, without regard to conflict-of-law rules. If any
             part of these terms is found unenforceable, the rest still applies. Questions or concerns:{' '}
             <a href={`${GITHUB_URL}/issues`}>open an issue on GitHub</a>.
           </p>
