@@ -14,6 +14,7 @@ A student should be able to ask, “I don’t understand derivatives,” and wat
 
 - `/` — landing page
 - `/panel` — the learning terminal (`/studio` redirects here)
+- `/vision` — the public product vision (deep dive: [docs/VISION.md](docs/VISION.md))
 - `/demo` — fixed schema-rendered demo lesson
 
 ## Current wedge

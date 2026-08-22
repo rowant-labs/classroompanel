@@ -4,7 +4,7 @@
 
 ClassroomPanel is an open-source educational harness — the working structure around an AI model that makes it actually teach. It is a streaming blackboard, a curriculum engine, and a persistent learner record that together turn any textbook into a living course, and any AI model — today's or next year's — into a tutor worth learning from.
 
-This document explains what we believe, what we're building, why it can last, and what we will refuse to build. Its strategic claims were researched and adversarially fact-checked against primary sources in July 2026; see [Grounding](#grounding) at the end. This file is the canonical vision; the landing page (`/`) carries the public-facing version.
+This document explains what we believe, what we're building, why it can last, and what we will refuse to build. Its strategic claims were researched and adversarially fact-checked against primary sources in July 2026; see [Grounding](#grounding) at the end. This file is the canonical vision; the `/vision` page carries the public-facing version.
 
 ---
 
