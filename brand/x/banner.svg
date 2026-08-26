@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="500" viewBox="0 0 1500 500" role="img" aria-labelledby="title desc">
+  <title id="title">ClassroomPanel X banner</title>
+  <desc id="desc">A professional dark banner for ClassroomPanel, an open-source AI learning terminal.</desc>
+  <defs>
+    <radialGradient id="bg" cx="28%" cy="30%" r="78%">
+      <stop offset="0%" stop-color="#143f33"/>
+      <stop offset="52%" stop-color="#0d241d"/>
+      <stop offset="100%" stop-color="#08111f"/>
+    </radialGradient>
+    <radialGradient id="board" cx="46%" cy="38%" r="80%">
+      <stop offset="0%" stop-color="#1d3326"/>
+      <stop offset="100%" stop-color="#0f1d15"/>
+    </radialGradient>
+    <linearGradient id="panel" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity=".12"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity=".045"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="28" flood-color="#000000" flood-opacity=".32"/>
+    </filter>
+  </defs>
+
+  <rect width="1500" height="500" fill="url(#bg)"/>
+  <g opacity=".23" stroke="#6ee7f9" stroke-width="1.5">
+    <path d="M0 80H1500M0 160H1500M0 240H1500M0 320H1500M0 400H1500"/>
+    <path d="M120 0V500M260 0V500M400 0V500M540 0V500M680 0V500M820 0V500M960 0V500M1100 0V500M1240 0V500M1380 0V500"/>
+  </g>
+  <circle cx="1148" cy="42" r="176" fill="#6ee7f9" opacity=".11"/>
+  <circle cx="1410" cy="388" r="205" fill="#a78bfa" opacity=".12"/>
+  <circle cx="646" cy="504" r="180" fill="#7dd3a8" opacity=".08"/>
+
+  <g transform="translate(100 86)" filter="url(#shadow)">
+    <rect x="0" y="0" width="328" height="328" rx="70" fill="url(#board)" stroke="#3a5844" stroke-width="14"/>
+    <path d="M58 250 C 130 240, 178 190, 270 78" fill="none" stroke="#fff8df" stroke-width="36" stroke-linecap="round"/>
+    <circle cx="190" cy="168" r="37" fill="#f0d98d"/>
+  </g>
+
+  <g transform="translate(504 94)">
+    <rect x="0" y="0" width="816" height="312" rx="28" fill="url(#panel)" stroke="#ffffff" stroke-opacity=".14"/>
+    <text x="44" y="91" fill="#6ee7f9" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="900" letter-spacing="4">OPEN-SOURCE AI LEARNING</text>
+    <text x="44" y="180" fill="#f6f8fb" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="74" font-weight="900">ClassroomPanel</text>
+    <text x="47" y="238" fill="#aab7c8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="31" font-weight="650">End-to-end control and transparency in learning.</text>
+  </g>
+</svg>
