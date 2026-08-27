@@ -1,0 +1,37 @@
+name: Bug report
+description: Something broken in the board, the record, or generation
+labels: [bug]
+body:
+  - type: input
+    id: route
+    attributes:
+      label: Where
+      description: The route or surface (e.g. /panel, /api/lesson, curriculum upload, review queue)
+      placeholder: /panel
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Model / provider in use
+      description: Which key was live (e.g. Google only, Anthropic + Google, none/keyless, self-hosted env keys)
+      placeholder: Google only (BYOK)
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got. For generation bugs, paste the lesson JSON if you can capture it (localStorage key `classroompanel.session.v2`).
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Browser + OS; hosted (classroompanel.com) or self-hosted (and how it's deployed)
+      placeholder: Chrome 139 / macOS, classroompanel.com
+  - type: checkboxes
+    id: record
+    attributes:
+      label: Learner record
+      options:
+        - label: This bug caused loss or corruption of a learner record (these get priority)

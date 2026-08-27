@@ -1,59 +1,59 @@
+<p align="center">
+  <img src="brand/x/classroompanel-x-banner.png" alt="ClassroomPanel — open-source AI learning" width="100%" />
+</p>
+
+<p align="center">
+  <a href="https://www.classroompanel.com"><b>classroompanel.com</b></a> ·
+  <a href="https://www.classroompanel.com/vision">Vision</a> ·
+  <a href="docs/VISION.md">Deep-dive vision</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/rowant-labs/classroompanel/actions/workflows/ci.yml"><img src="https://github.com/rowant-labs/classroompanel/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-2ea44f" alt="License: AGPL-3.0" /></a>
+</p>
+
 # ClassroomPanel
 
-The AI tutor with a living blackboard. Open source (AGPL-3.0), self-hostable with your own model API keys.
+**The AI tutor with a living blackboard.** A student asks "I don't understand derivatives" and watches the panel become the lesson: graph, tangent line, explanation, practice problem, and feedback — all on one board. Upload a full textbook and it becomes a multi-unit course with mastery gates and spaced review, tracked in a learner record the family owns.
 
-ClassroomPanel helps students learn by turning questions, notes, PDFs, and course material into one adaptive visual learning space: explanation, diagrams, graphs, simulations, and quick checks on one board. Full textbooks become multi-unit courses; a persistent learner record drives mastery-gated progression and spaced review.
+Built on three commitments:
 
-Read [docs/VISION.md](docs/VISION.md) for what this project believes and where it’s going.
+- **Learning through AI should be open source.** Parents and schools deserve to see exactly what an LLM is teaching their kids — every tutoring rule in this repo is public, auditable code (AGPL-3.0).
+- **Bring your own key.** No accounts, no subscription, no middleman: connect an Anthropic, OpenAI, or Google API key and lessons generate live on inference you fund directly. Keys ride each request and are never stored or logged.
+- **We save nothing.** The learner record — every prediction, explanation, quiz, and mastered concept — lives in the browser and in files you export. Nothing reaches our servers.
 
-## Product north star
+## Try it
 
-A student should be able to ask, “I don’t understand derivatives,” and watch the panel become the lesson: graph, tangent line, explanation, animation, practice problem, and feedback — all in sync. And a month later, the panel should remember what stuck and re-ask what didn’t.
-
-## Routes
-
-- `/` — landing page
-- `/panel` — the learning terminal (`/studio` redirects here)
-- `/vision` — the public product vision (deep dive: [docs/VISION.md](docs/VISION.md))
-- `/terms` — terms & privacy for the hosted service (the code itself is AGPL-3.0)
-- `/demo` — fixed schema-rendered demo lesson
-
-## Current wedge
-
-Upload a textbook, chapter, or syllabus → a persistent multi-unit course of interactive blackboard lessons, with quizzes feeding a learner record.
-
-## AI generation
-
-The app is schema-first. The model returns validated lesson JSON, then our renderer draws known block types. This avoids random unsafe HTML and keeps the blackboard reliable.
-
-Live generation is optional right now, and there are two ways to enable it:
-
-- **Server keys (self-hosting):**
+- **Hosted:** [classroompanel.com/panel](https://www.classroompanel.com/panel) — bring a key from any provider (the panel links to where to create one).
+- **Self-hosted:**
 
   ```bash
-  cp .env.example .env.local
-  # add ANTHROPIC_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or OPENAI_API_KEY
+  git clone https://github.com/rowant-labs/classroompanel && cd classroompanel
+  npm install
+  cp .env.example .env.local   # optional: add server-side keys; BYOK works without them
+  npm run dev
   ```
 
-- **Bring your own key (in the browser):** the tutor panel has a "Bring your own key" affordance. A key from any one provider makes lessons generate live (board pictures need Google or OpenAI). The key is saved in the visitor's own browser (localStorage) and attached to each generation request; the server uses it for that one call and never stores or logs it.
+Without any key, `/panel` opens with an empty board and asks for one before drawing — it never passes off a canned lesson as generated. The fixed sample board lives at `/demo`.
 
-Without any key, `/panel` opens with an empty board and asks for a key before drawing — it never passes off a canned lesson as a generated one. The fixed sample board lives at `/demo`.
+## How it works
 
-## Development
+The app is **schema-first**: models return validated lesson JSON, and the renderer draws known block types (explanation, live graphs, sketches, simulations, free-body diagrams, worked equations, generated pictures, do-blocks, quizzes). No model-produced HTML is ever rendered. Malformed generations are salvaged block-by-block rather than discarded, and a stall watchdog means the board never hangs.
 
-```bash
-npm install
-npm run dev
-npm run test
-npm run build
-```
+Every lesson is built around **doing**: the student commits to a prediction before the explanation, says the idea back in their own words afterward (the tutor reads and grades the explanation when a key is live), and answers a quick check. Only the quiz moves mastery; the record schedules spaced review of what's fading.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for ground rules (schema-first, no answer-dumping, provider quirks) and the CLA.
+The model router is **provider-agnostic** — each job (tutoring, board drawing, fast grading) goes to the best-suited model among whichever providers have a live key, and self-hosters can pin any role via `CLASSROOMPANEL_*_MODEL` env vars.
 
-## Self-hosting
+Key routes: `/panel` (the learning terminal), `/vision`, `/terms`, `/demo`. Architecture notes live in [docs/](docs/).
 
-The entire learning product in this repo is free to self-host under AGPL-3.0: run it with your own model API keys and it's yours — for your family, classroom, school, or offline deployment. The hosted convenience version at classroompanel.com (accounts, sync, managed inference) is how the project funds itself; self-hosters never depend on it.
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the ground rules (schema-first, the pedagogy spec, provider quirks) and the CLA, and [docs/VISION.md](docs/VISION.md) for what this project will and won't build. The most valuable areas right now: mastery-loop improvements, new board block types, curriculum-ingestion robustness, self-hosting experience, and board accessibility.
+
+Bugs and ideas: [open an issue](https://github.com/rowant-labs/classroompanel/issues). Security problems: [report privately](https://github.com/rowant-labs/classroompanel/security/advisories/new) — see [SECURITY.md](SECURITY.md).
 
 ## License
 
-[AGPL-3.0](LICENSE). Anyone can use, study, modify, and self-host ClassroomPanel; modifications served to users over a network must be shared under the same license. Contributions are welcomed under a lightweight CLA — see [CONTRIBUTING.md](CONTRIBUTING.md).
+[AGPL-3.0](LICENSE). Anyone can use, study, modify, and self-host ClassroomPanel; modifications served to users over a network must be shared under the same license. Every AGPL release is irrevocable — the open product survives any business outcome. The hosted service at classroompanel.com is how the project funds itself; self-hosters never depend on it. "ClassroomPanel" and its logo are project trademarks: forks are welcome and must use their own name.

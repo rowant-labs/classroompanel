@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose an improvement to the learning terminal
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What a learner, parent, or teacher can't do (or does painfully) today
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What you'd build. New board block types need a schema entry, a renderer, and a test — see CONTRIBUTING.md.
+    validations:
+      required: true
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Fit with the project's principles
+      description: Read docs/VISION.md — proposals that conflict with these won't merge, however good the code.
+      options:
+        - label: This doesn't hand answers to graded work (no answer-dumping)
+          required: true
+        - label: This doesn't optimize engagement at the cost of retention
+          required: true
+        - label: Value requires persistence, ownership, or guardianship (i.e., a frontier lab chat won't ship it for free)
